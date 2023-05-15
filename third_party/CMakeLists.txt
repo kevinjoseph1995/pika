@@ -1,3 +1,5 @@
+
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_subdirectory(fmt)
 
 option(BUILD_GMOCK "Builds the googlemock subproject" OFF)

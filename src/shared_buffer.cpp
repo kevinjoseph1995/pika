@@ -3,6 +3,7 @@
 // Local includes
 #include "error.hpp"
 // System includes
+#include <cstdio>
 #include <errno.h>
 #include <fmt/core.h>
 #include <sys/mman.h>

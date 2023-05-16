@@ -26,6 +26,11 @@ public:
     {
         return m_size;
     }
+    auto Leak()
+    {
+        m_data = nullptr;
+        m_size = 0;
+    }
 
 private:
     uint8_t* m_data = nullptr;

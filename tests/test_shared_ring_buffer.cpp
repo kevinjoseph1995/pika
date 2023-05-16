@@ -10,32 +10,34 @@
 TEST(SharedRingBuffer, Construction)
 {
     using namespace std::chrono_literals;
-    SharedRingBuffer<std::array<int, 100000000>> shared_ring_buffer;
+    SharedRingBuffer<bool> shared_ring_buffer;
     EXPECT_TRUE(shared_ring_buffer.Initialize(1));
 
     auto code = fork();
-    static constexpr auto NUM_MESSAGES = 1000;
+    static constexpr auto NUM_MESSAGES = 5;
 
     if (code == 0) {
+        shared_ring_buffer.RegisterEndpoint();
         for (int i = 0; i < NUM_MESSAGES; ++i) {
             {
                 auto write_slot = shared_ring_buffer.GetWriteSlot();
-                if (write_slot.has_value()) {
-                    *write_slot->GetElement().end() = i;
-                    i = i + 1;
-                    fmt::println("Write:{}", i);
+                if (write_slot.has_value() && i == (NUM_MESSAGES - 1)) {
+                    write_slot->GetElement() = true;
+                } else {
+                    write_slot->GetElement() = false;
                 }
             }
         }
-        exit(0);
     } else {
+        shared_ring_buffer.RegisterEndpoint();
         while (true) {
             {
                 auto read_slot = shared_ring_buffer.GetReadSlot();
                 if (read_slot.has_value()) {
-                    fmt::println("Read:{}", *read_slot->GetElement().end());
-                    if (*read_slot->GetElement().end() == NUM_MESSAGES - 1) {
+                    if (read_slot.value().GetElement() == true) {
                         break;
+                    } else {
+                        fmt::println("Read value");
                     }
                 }
             }

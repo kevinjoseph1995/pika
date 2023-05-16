@@ -2,13 +2,23 @@
 #define PIKA_SHARED_RING_BUFFER_HPP
 
 #include "error.hpp"
+#include "fmt/core.h"
 #include "shared_buffer.hpp"
 #include "synchronization_primitives.hpp"
 
+#include <array>
+#include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <expected>
+#include <fmt/ranges.h>
+#include <memory>
+#include <ranges>
 #include <span>
+#include <sys/types.h>
 #include <type_traits>
+#include <unistd.h>
 
 template<typename ElementType>
 struct SharedRingBuffer;
@@ -94,6 +104,7 @@ protected:
 };
 
 struct Header {
+    static constexpr auto MAX_NUMBER_OF_ENDPOINTS = 2;
     InterProcessMutex mutex;
     InterProcessConditionVariable not_empty_condition_variable;
     InterProcessConditionVariable not_full_condition_variable;
@@ -102,6 +113,7 @@ struct Header {
     uint64_t write_index = 0;
     uint64_t read_index = 0;
     uint64_t count = 0;
+    std::array<pid_t, MAX_NUMBER_OF_ENDPOINTS> registered_endpoints {};
 };
 
 template<typename ElementType>
@@ -115,11 +127,31 @@ struct SharedRingBuffer {
         }
     }();
     static_assert((RING_BUFFER_START_OFFSET % alignof(ElementType)) == 0);
-
+    auto RegisterEndpoint() -> std::expected<void, PikaError>
+    {
+        auto process_id = getpid();
+        if (not getHeader().initialized) {
+            return std::unexpected {
+                PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
+                    .error_message = "SharedRingBuffer::RegisterEndpoint Uninitialized" }
+            };
+        }
+        for (size_t i = 0; i < Header::MAX_NUMBER_OF_ENDPOINTS; ++i) {
+            if (getHeader().registered_endpoints[i] == pid_t {} || getHeader().registered_endpoints[i] == process_id) {
+                getHeader().registered_endpoints[i] = process_id;
+                return {};
+            }
+        }
+        return std::unexpected {
+            PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
+                .error_message = "SharedRingBuffer::RegisterEndpoint trying to register too many endpoints" }
+        };
+    }
     [[nodiscard]] auto Initialize(uint64_t number_of_elements) -> std::expected<void, PikaError>
     {
+        m_shared_buffer = std::make_unique<SharedBuffer>();
         auto const total_shared_buffer_size = RING_BUFFER_START_OFFSET + (number_of_elements * sizeof(ElementType));
-        auto result = m_shared_buffer.Initialize(total_shared_buffer_size);
+        auto result = m_shared_buffer->Initialize(total_shared_buffer_size);
         if (not result.has_value()) {
             return std::unexpected(result.error());
         }
@@ -200,7 +232,21 @@ struct SharedRingBuffer {
     ~SharedRingBuffer()
     {
         if (getHeader().initialized) {
-            getHeader().~Header();
+            int number_of_processes_registered = 0;
+            for (size_t i = 0; i < Header::MAX_NUMBER_OF_ENDPOINTS; ++i) {
+                if (getHeader().registered_endpoints[i] != pid_t {}) {
+                    ++number_of_processes_registered;
+                }
+                if (getHeader().registered_endpoints[i] == getpid()) {
+                    getHeader().registered_endpoints[i] = pid_t {};
+                }
+            }
+            if (number_of_processes_registered == 1) {
+                getHeader().~Header();
+                m_shared_buffer.reset(nullptr);
+            } else {
+                m_shared_buffer->Leak();
+            }
         }
     }
 
@@ -212,15 +258,15 @@ private:
     }
     [[nodiscard]] auto getHeaderPtr() -> Header*
     {
-        return reinterpret_cast<Header*>(m_shared_buffer.GetBuffer());
+        return reinterpret_cast<Header*>(m_shared_buffer->GetBuffer());
     }
     [[nodiscard]] auto getBufferSlot(uint64_t index) -> ElementType&
     {
         PIKA_ASSERT(getHeader().initialized);
-        return *reinterpret_cast<ElementType*>(m_shared_buffer.GetBuffer() + RING_BUFFER_START_OFFSET + index * sizeof(ElementType));
+        return *reinterpret_cast<ElementType*>(m_shared_buffer->GetBuffer() + RING_BUFFER_START_OFFSET + index * sizeof(ElementType));
     }
 
-    SharedBuffer m_shared_buffer;
+    std::unique_ptr<SharedBuffer> m_shared_buffer;
 };
 
 #endif

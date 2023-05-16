@@ -11,41 +11,94 @@
 #include <type_traits>
 
 template<typename ElementType>
-struct WriteSlot {
-    WriteSlot(LockedMutex locked_mutex, ElementType& element)
-        : m_element(element)
-        , m_locked_mutex(std::move(locked_mutex))
-    {
-    }
-    auto GetElement() const -> ElementType& { return m_element; }
+struct SharedRingBuffer;
 
-protected:
-    ElementType& m_element;
+template<typename ElementType>
+struct WriteSlot {
+    auto GetElement() const -> ElementType& { return *m_element; }
+    ~WriteSlot()
+    {
+        if (m_cv != nullptr) {
+            m_locked_mutex.~LockedMutex();
+            m_cv->Signal();
+            m_cv = nullptr;
+        }
+    }
+    WriteSlot(WriteSlot&& other)
+        : m_element(other.m_element)
+        , m_locked_mutex(std::move(other.m_locked_mutex))
+        , m_cv(other.m_cv)
+    {
+        other.m_cv = nullptr;
+    }
+    WriteSlot& operator=(WriteSlot&& other)
+    {
+        m_element = other.m_element;
+        m_locked_mutex = std::move(other.m_locked_mutex);
+        m_cv = other.m_cv;
+        other.m_cv = nullptr;
+        return *this;
+    }
 
 private:
+    WriteSlot(LockedMutex locked_mutex, InterProcessConditionVariable* cv, ElementType* element)
+        : m_element(element)
+        , m_locked_mutex(std::move(locked_mutex))
+        , m_cv(cv)
+    {
+    }
+    friend struct SharedRingBuffer<ElementType>;
+    ElementType* m_element = nullptr;
     LockedMutex m_locked_mutex;
+    InterProcessConditionVariable* m_cv = nullptr;
 };
 
 template<typename ElementType>
 struct ReadSlot {
-    ReadSlot(LockedMutex locked_mutex, ElementType const& element)
-        : m_element(element)
-        , m_locked_mutex(std::move(locked_mutex))
+    auto GetElement() const -> ElementType const& { return *m_element; }
+    ~ReadSlot()
     {
+        if (m_cv != nullptr) {
+            m_locked_mutex.~LockedMutex();
+            m_cv->Signal();
+            m_cv = nullptr;
+        }
     }
-    auto GetElement() const -> ElementType const& { return m_element; }
+    ReadSlot(ReadSlot&& other)
+        : m_element(other.m_element)
+        , m_locked_mutex(std::move(other.m_locked_mutex))
+        , m_cv(other.m_cv)
+    {
+        other.m_cv = nullptr;
+    }
+    ReadSlot& operator=(ReadSlot&& other)
+    {
+        m_element = other.m_element;
+        m_locked_mutex = std::move(other.m_locked_mutex);
+        m_cv = other.m_cv;
+        other.m_cv = nullptr;
+        return *this;
+    }
 
 protected:
-    ElementType const& m_element;
-
-private:
+    ReadSlot(LockedMutex locked_mutex, InterProcessConditionVariable* cv, ElementType const* element)
+        : m_element(element)
+        , m_locked_mutex(std::move(locked_mutex))
+        , m_cv(cv)
+    {
+    }
+    friend struct SharedRingBuffer<ElementType>;
+    ElementType const* m_element = nullptr;
     LockedMutex m_locked_mutex;
+    InterProcessConditionVariable* m_cv = nullptr;
 };
 
 struct Header {
     InterProcessMutex mutex;
+    InterProcessConditionVariable not_empty_condition_variable;
+    InterProcessConditionVariable not_full_condition_variable;
     bool initialized = false;
-    uint64_t number_of_elements = 0;
+    uint64_t max_number_of_elements = 0;
     uint64_t write_index = 0;
     uint64_t read_index = 0;
     uint64_t count = 0;
@@ -76,7 +129,17 @@ struct SharedRingBuffer {
         if (not result.has_value()) {
             return std::unexpected(result.error());
         }
-        header_location->number_of_elements = number_of_elements;
+        result = header_location->not_empty_condition_variable.Initialize();
+        if (not result.has_value()) {
+            result.error().error_message.append("| not_empty_condition_variable");
+            return std::unexpected(result.error());
+        }
+        result = header_location->not_full_condition_variable.Initialize();
+        if (not result.has_value()) {
+            result.error().error_message.append("| not_full_condition_variable");
+            return std::unexpected(result.error());
+        }
+        header_location->max_number_of_elements = number_of_elements;
         header_location->initialized = true;
         return {};
     }
@@ -88,18 +151,22 @@ struct SharedRingBuffer {
                     .error_message = "SharedRingBuffer::GetWriteSlot Uninitialized" }
             };
         }
-        auto locked_mutex_result = LockedMutex::New(getHeader().mutex);
+        auto locked_mutex_result = LockedMutex::New(&getHeader().mutex);
         if (not locked_mutex_result.has_value()) {
             return std::unexpected { locked_mutex_result.error() };
         }
-        if (getHeader().count == getHeader().number_of_elements) {
-            return std::unexpected {
-                PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
-                    .error_message = "SharedRingBuffer::GetWriteSlot Ring buffer full" }
-            };
-        }
-        auto write_slot = WriteSlot<ElementType> { std::move((locked_mutex_result.value())), getBufferSlot(getHeader().write_index) };
-        getHeader().write_index = (getHeader().write_index + 1) % getHeader().number_of_elements;
+
+        getHeader().not_full_condition_variable.Wait(locked_mutex_result.value(),
+            [this]() -> bool {
+                return getHeader().count < getHeader().max_number_of_elements;
+            });
+
+        auto write_slot = WriteSlot<ElementType> {
+            std::move((locked_mutex_result.value())),
+            &(getHeader().not_empty_condition_variable),
+            &(getBufferSlot(getHeader().write_index))
+        };
+        getHeader().write_index = (getHeader().write_index + 1) % getHeader().max_number_of_elements;
         ++getHeader().count;
         return write_slot;
     }
@@ -111,18 +178,22 @@ struct SharedRingBuffer {
                     .error_message = "SharedRingBuffer::GetReadSlot Uninitialized" }
             };
         }
-        auto locked_mutex_result = LockedMutex::New(getHeader().mutex);
+        auto locked_mutex_result = LockedMutex::New(&getHeader().mutex);
         if (not locked_mutex_result.has_value()) {
             return std::unexpected { locked_mutex_result.error() };
         }
-        if (getHeader().read_index == getHeader().write_index) {
-            return std::unexpected {
-                PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
-                    .error_message = "SharedRingBuffer::GetReadSlot Ring buffer empty" }
-            };
-        }
-        auto read_slot = ReadSlot<ElementType> { std::move((locked_mutex_result.value())), getBufferSlot(getHeader().read_index) };
-        getHeader().read_index = (getHeader().read_index + 1) % getHeader().number_of_elements;
+
+        getHeader().not_empty_condition_variable.Wait(locked_mutex_result.value(),
+            [&]() -> bool {
+                return getHeader().count != 0;
+            });
+
+        auto read_slot = ReadSlot<ElementType> {
+            std::move((locked_mutex_result.value())),
+            &(getHeader().not_full_condition_variable),
+            &(getBufferSlot(getHeader().read_index))
+        };
+        getHeader().read_index = (getHeader().read_index + 1) % getHeader().max_number_of_elements;
         --getHeader().count;
         return read_slot;
     }

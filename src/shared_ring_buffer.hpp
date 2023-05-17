@@ -103,21 +103,20 @@ protected:
     InterProcessConditionVariable* m_cv = nullptr;
 };
 
-struct Header {
-    static constexpr auto MAX_NUMBER_OF_ENDPOINTS = 2;
-    InterProcessMutex mutex;
-    InterProcessConditionVariable not_empty_condition_variable;
-    InterProcessConditionVariable not_full_condition_variable;
-    bool initialized = false;
-    uint64_t max_number_of_elements = 0;
-    uint64_t write_index = 0;
-    uint64_t read_index = 0;
-    uint64_t count = 0;
-    std::array<pid_t, MAX_NUMBER_OF_ENDPOINTS> registered_endpoints {};
-};
-
 template<typename ElementType>
 struct SharedRingBuffer {
+    struct Header {
+        static constexpr auto MAX_NUMBER_OF_ENDPOINTS = 2;
+        InterProcessMutex mutex;
+        InterProcessConditionVariable not_empty_condition_variable;
+        InterProcessConditionVariable not_full_condition_variable;
+        bool initialized = false;
+        uint64_t max_number_of_elements = 0;
+        uint64_t write_index = 0;
+        uint64_t read_index = 0;
+        uint64_t count = 0;
+        std::array<pid_t, MAX_NUMBER_OF_ENDPOINTS> registered_endpoints {};
+    };
     static_assert(std::is_trivial_v<ElementType>);
     static constexpr auto RING_BUFFER_START_OFFSET = []() {
         if constexpr (alignof(ElementType) < sizeof(Header)) {

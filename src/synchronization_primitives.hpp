@@ -3,32 +3,48 @@
 
 #include "error.hpp"
 
+#include <cstdint>
 #include <cstdio>
 #include <expected>
 #include <fmt/core.h>
 #include <pthread.h>
+#include <semaphore.h>
 
-struct InterProcessMutex {
-    InterProcessMutex() = default;
+struct Semaphore {
+    [[nodiscard]] static auto New(std::string const& semaphore_name, int32_t initial_value) -> std::expected<Semaphore, PikaError>;
+    auto Wait() -> void;
+    auto Post() -> void;
+    Semaphore(Semaphore const&) = delete;
+    Semaphore(Semaphore&&);
+    ~Semaphore();
+
+private:
+    Semaphore() = default;
+    sem_t* m_sem = nullptr;
+    std::string m_sem_name;
+};
+
+struct Mutex {
+    Mutex() = default;
     // Make this restrictive, we don't want to worry about the semantics of the all the types of contructors
-    InterProcessMutex(InterProcessMutex const&) = delete;
-    InterProcessMutex(InterProcessMutex&&) = delete;
+    Mutex(Mutex const&) = delete;
+    Mutex(Mutex&&) = delete;
 
-    [[nodiscard]] auto Initialize() -> std::expected<void, PikaError>;
+    [[nodiscard]] auto Initialize(bool intra_process = false) -> std::expected<void, PikaError>;
     [[nodiscard]] auto Lock() -> std::expected<void, PikaError>;
     [[nodiscard]] auto Unlock() -> std::expected<void, PikaError>;
 
-    ~InterProcessMutex();
+    ~Mutex();
 
 private:
     bool m_initialized = false;
     friend struct LockedMutex;
-    friend struct InterProcessConditionVariable;
+    friend struct ConditionVariable;
     pthread_mutex_t m_pthread_mutex {};
 };
 
 struct LockedMutex {
-    [[nodiscard]] static auto New(InterProcessMutex* mutex) -> std::expected<LockedMutex, PikaError>;
+    [[nodiscard]] static auto New(Mutex* mutex) -> std::expected<LockedMutex, PikaError>;
     ~LockedMutex();
     LockedMutex(LockedMutex const&) = delete;
     LockedMutex(LockedMutex&& other)
@@ -45,16 +61,16 @@ struct LockedMutex {
     }
 
 private:
-    friend struct InterProcessConditionVariable;
-    LockedMutex(InterProcessMutex* mutex)
+    friend struct ConditionVariable;
+    LockedMutex(Mutex* mutex)
         : m_mutex(mutex)
     {
     }
-    InterProcessMutex* m_mutex = nullptr;
+    Mutex* m_mutex = nullptr;
 };
 
-struct InterProcessConditionVariable {
-    [[nodiscard]] auto Initialize() -> std::expected<void, PikaError>;
+struct ConditionVariable {
+    [[nodiscard]] auto Initialize(bool intra_process = false) -> std::expected<void, PikaError>;
     template<typename Predicate>
     void Wait(LockedMutex& locked_mutex, Predicate stop_waiting)
     {
@@ -73,11 +89,11 @@ struct InterProcessConditionVariable {
             fmt::println(stderr, "pthread_cond_wait failed with return code{}", status);
         }
     }
-    InterProcessConditionVariable() = default;
-    InterProcessConditionVariable(InterProcessConditionVariable const&) = delete;
-    InterProcessConditionVariable(InterProcessConditionVariable&&) = delete;
-    InterProcessConditionVariable& operator=(InterProcessConditionVariable&&) = delete;
-    ~InterProcessConditionVariable();
+    ConditionVariable() = default;
+    ConditionVariable(ConditionVariable const&) = delete;
+    ConditionVariable(ConditionVariable&&) = delete;
+    ConditionVariable& operator=(ConditionVariable&&) = delete;
+    ~ConditionVariable();
 
 private:
     bool m_initialized = false;

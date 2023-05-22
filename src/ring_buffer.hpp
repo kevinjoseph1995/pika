@@ -2,23 +2,13 @@
 #define PIKA_SHARED_RING_BUFFER_HPP
 
 #include "error.hpp"
-#include "fmt/core.h"
 #include "shared_buffer.hpp"
 #include "synchronization_primitives.hpp"
-
-#include <array>
+// System includes
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
-#include <expected>
-#include <fmt/ranges.h>
-#include <memory>
-#include <ranges>
-#include <span>
-#include <sys/types.h>
 #include <type_traits>
-#include <unistd.h>
 
 template<typename ElementType>
 struct SharedRingBuffer;
@@ -51,7 +41,7 @@ struct WriteSlot {
     }
 
 private:
-    WriteSlot(LockedMutex locked_mutex, InterProcessConditionVariable* cv, ElementType* element)
+    WriteSlot(LockedMutex locked_mutex, ConditionVariable* cv, ElementType* element)
         : m_element(element)
         , m_locked_mutex(std::move(locked_mutex))
         , m_cv(cv)
@@ -60,7 +50,7 @@ private:
     friend struct SharedRingBuffer<ElementType>;
     ElementType* m_element = nullptr;
     LockedMutex m_locked_mutex;
-    InterProcessConditionVariable* m_cv = nullptr;
+    ConditionVariable* m_cv = nullptr;
 };
 
 template<typename ElementType>
@@ -91,7 +81,7 @@ struct ReadSlot {
     }
 
 protected:
-    ReadSlot(LockedMutex locked_mutex, InterProcessConditionVariable* cv, ElementType const* element)
+    ReadSlot(LockedMutex locked_mutex, ConditionVariable* cv, ElementType const* element)
         : m_element(element)
         , m_locked_mutex(std::move(locked_mutex))
         , m_cv(cv)
@@ -100,22 +90,21 @@ protected:
     friend struct SharedRingBuffer<ElementType>;
     ElementType const* m_element = nullptr;
     LockedMutex m_locked_mutex;
-    InterProcessConditionVariable* m_cv = nullptr;
+    ConditionVariable* m_cv = nullptr;
 };
 
 template<typename ElementType>
-struct SharedRingBuffer {
+struct RingBuffer {
+private:
     struct Header {
-        static constexpr auto MAX_NUMBER_OF_ENDPOINTS = 2;
-        InterProcessMutex mutex;
-        InterProcessConditionVariable not_empty_condition_variable;
-        InterProcessConditionVariable not_full_condition_variable;
-        bool initialized = false;
+        std::atomic_bool initialized = false;
+        Mutex mutex; // Coarse grained lock protecting all accesses to the buffer
+        ConditionVariable not_empty_condition_variable;
+        ConditionVariable not_full_condition_variable;
         uint64_t max_number_of_elements = 0;
         uint64_t write_index = 0;
         uint64_t read_index = 0;
         uint64_t count = 0;
-        std::array<pid_t, MAX_NUMBER_OF_ENDPOINTS> registered_endpoints {};
     };
     static_assert(std::is_trivial_v<ElementType>);
     static constexpr auto RING_BUFFER_START_OFFSET = []() {
@@ -126,54 +115,58 @@ struct SharedRingBuffer {
         }
     }();
     static_assert((RING_BUFFER_START_OFFSET % alignof(ElementType)) == 0);
-    auto RegisterEndpoint() -> std::expected<void, PikaError>
+
+public:
+    static constexpr auto GetRequiredBufferSize(uint64_t number_of_elements) -> size_t
     {
-        auto process_id = getpid();
-        if (not getHeader().initialized) {
-            return std::unexpected {
-                PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
-                    .error_message = "SharedRingBuffer::RegisterEndpoint Uninitialized" }
-            };
-        }
-        for (size_t i = 0; i < Header::MAX_NUMBER_OF_ENDPOINTS; ++i) {
-            if (getHeader().registered_endpoints[i] == pid_t {} || getHeader().registered_endpoints[i] == process_id) {
-                getHeader().registered_endpoints[i] = process_id;
-                return {};
-            }
-        }
-        return std::unexpected {
-            PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
-                .error_message = "SharedRingBuffer::RegisterEndpoint trying to register too many endpoints" }
-        };
+        return RING_BUFFER_START_OFFSET + (number_of_elements * sizeof(ElementType));
     }
-    [[nodiscard]] auto Initialize(uint64_t number_of_elements) -> std::expected<void, PikaError>
+
+    static constexpr auto GetAlignmentRequirement() -> size_t
     {
-        m_shared_buffer = std::make_unique<SharedBuffer>();
-        auto const total_shared_buffer_size = RING_BUFFER_START_OFFSET + (number_of_elements * sizeof(ElementType));
-        auto result = m_shared_buffer->Initialize(total_shared_buffer_size);
-        if (not result.has_value()) {
-            return std::unexpected(result.error());
+        return std::alignment_of<Header>();
+    }
+
+    [[nodiscard]] static auto IsInitialized(uint8_t* buffer) -> bool
+    {
+        return getHeaderPtr(buffer)->initialized.load();
+    }
+
+    [[nodiscard]] auto Initialize(uint8_t* buffer, uint64_t number_of_elements, bool intra_process) -> std::expected<void, PikaError>
+    {
+        if (buffer == nullptr) {
+            return std::unexpected(PikaError {
+                .error_type = PikaErrorType::SharedRingBufferError,
+                .error_message = "SharedRingBuffer::Initialize buffer==nullptr" });
         }
 
+        if (reinterpret_cast<std::uintptr_t>(buffer) % GetAlignmentRequirement() != 0) {
+            return std::unexpected(PikaError {
+                .error_type = PikaErrorType::SharedRingBufferError,
+                .error_message = "SharedRingBuffer::Initialize buffer is not aligned" });
+        }
+
+        m_buffer = buffer;
+
         auto header_location = new (getHeaderPtr()) Header();
-        result = header_location->mutex.Initialize();
+        auto result = header_location->mutex.Initialize(intra_process);
         if (not result.has_value()) {
             return std::unexpected(result.error());
         }
-        result = header_location->not_empty_condition_variable.Initialize();
+        result = header_location->not_empty_condition_variable.Initialize(intra_process);
         if (not result.has_value()) {
             result.error().error_message.append("| not_empty_condition_variable");
             return std::unexpected(result.error());
         }
-        result = header_location->not_full_condition_variable.Initialize();
+        result = header_location->not_full_condition_variable.Initialize(intra_process);
         if (not result.has_value()) {
             result.error().error_message.append("| not_full_condition_variable");
             return std::unexpected(result.error());
         }
         header_location->max_number_of_elements = number_of_elements;
-        header_location->initialized = true;
         return {};
     }
+
     [[nodiscard]] auto GetWriteSlot() -> std::expected<WriteSlot<ElementType>, PikaError>
     {
         if (not getHeader().initialized) {
@@ -201,6 +194,7 @@ struct SharedRingBuffer {
         ++getHeader().count;
         return write_slot;
     }
+
     [[nodiscard]] auto GetReadSlot() -> std::expected<ReadSlot<ElementType>, PikaError>
     {
         if (not getHeader().initialized) {
@@ -228,44 +222,37 @@ struct SharedRingBuffer {
         --getHeader().count;
         return read_slot;
     }
-    ~SharedRingBuffer()
+
+    ~RingBuffer()
     {
-        if (getHeader().initialized) {
-            int number_of_processes_registered = 0;
-            for (size_t i = 0; i < Header::MAX_NUMBER_OF_ENDPOINTS; ++i) {
-                if (getHeader().registered_endpoints[i] != pid_t {}) {
-                    ++number_of_processes_registered;
-                }
-                if (getHeader().registered_endpoints[i] == getpid()) {
-                    getHeader().registered_endpoints[i] = pid_t {};
-                }
-            }
-            if (number_of_processes_registered == 1) {
-                getHeader().~Header();
-                m_shared_buffer.reset(nullptr);
-            } else {
-                m_shared_buffer->Leak();
-            }
+        if (m_buffer) {
+            getHeader().~Header();
+            m_buffer = nullptr;
         }
     }
 
 private:
     [[nodiscard]] auto getHeader() -> Header&
     {
-        PIKA_ASSERT(getHeaderPtr()->initialized);
         return *getHeaderPtr();
     }
     [[nodiscard]] auto getHeaderPtr() -> Header*
     {
-        return reinterpret_cast<Header*>(m_shared_buffer->GetBuffer());
+        PIKA_ASSERT(m_buffer != nullptr);
+        return getHeaderPtr(m_buffer);
+    }
+    [[nodiscard]] static auto getHeaderPtr(uint8_t* ptr) -> Header*
+    {
+        PIKA_ASSERT(ptr != nullptr);
+        return reinterpret_cast<Header*>(ptr);
     }
     [[nodiscard]] auto getBufferSlot(uint64_t index) -> ElementType&
     {
         PIKA_ASSERT(getHeader().initialized);
-        return *reinterpret_cast<ElementType*>(m_shared_buffer->GetBuffer() + RING_BUFFER_START_OFFSET + index * sizeof(ElementType));
+        return *reinterpret_cast<ElementType*>(m_buffer + RING_BUFFER_START_OFFSET + index * sizeof(ElementType));
     }
 
-    std::unique_ptr<SharedBuffer> m_shared_buffer;
+    uint8_t* m_buffer = nullptr;
 };
 
 #endif

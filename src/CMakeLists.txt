@@ -5,7 +5,9 @@ option(PIKA_ENABLE_BACKTRACE "Enable backtrace" OFF)
 
 add_library(pika SHARED shared_buffer.cpp
                         error.cpp
-                        synchronization_primitives.cpp)
+                        process_fork.cpp
+                        synchronization_primitives.cpp
+)
 target_include_directories(pika PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(pika PUBLIC fmt $<$<STREQUAL:${PIKA_ENABLE_BACKTRACE},ON>:Backward::Backward>)
 target_compile_definitions(pika PRIVATE $<$<STREQUAL:${PIKA_ENABLE_BACKTRACE},ON>:ENABLE_BACKTRACE=1>)

@@ -1,10 +1,14 @@
+// Local includes
 #include "error.hpp"
-#include "fmt/core.h"
-#include "shared_ring_buffer.hpp"
-#include "shared_ring_buffer_lockfree.hpp"
-#include "gtest/gtest.h"
+#include "process_fork.hpp"
+#include "ring_buffer.hpp"
+#include "shared_buffer.hpp"
+// System includes
+#include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <fmt/core.h>
+#include <gtest/gtest.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -32,67 +36,31 @@ public:
     }
 };
 
-TEST(SharedRingBuffer, WithLock)
+TEST(SharedBuffer, Init)
 {
-    SharedRingBuffer<int64_t> shared_ring_buffer;
-    EXPECT_TRUE(shared_ring_buffer.Initialize(1000).has_value());
-
-    auto code = fork();
-    static constexpr auto NUM_MESSAGES = 1000000000;
-
-    if (code == 0) {
-        shared_ring_buffer.RegisterEndpoint();
-        for (int i = 0; i < NUM_MESSAGES; ++i) {
-            {
-                auto write_slot = shared_ring_buffer.GetWriteSlot();
-                if (write_slot.has_value()) {
-                    write_slot->GetElement() = i;
-                }
-            }
-        }
-    } else {
-        shared_ring_buffer.RegisterEndpoint();
-        StopWatch stop_watch;
-        while (true) {
-            {
-                auto read_slot = shared_ring_buffer.GetReadSlot();
-                if (read_slot.has_value()) {
-                    fmt::println("Popped: {}", read_slot->GetElement());
-                    fmt::println("duration={}", stop_watch.ElapsedDuration<uint64_t, std::chrono::nanoseconds>());
-                    stop_watch.Reset();
-                }
-            }
-        }
-    }
+    SharedBuffer shared_buffer;
+    auto result = shared_buffer.Initialize("/test", 100);
+    ASSERT_TRUE(result.has_value()) << result.error().error_message;
 }
 
-TEST(SharedRingBuffer, LockFree)
+TEST(SharedBuffer, MultipleProcess)
 {
-    SharedRingBufferLockFree<int64_t> ring_buffer;
-    EXPECT_TRUE(ring_buffer.Initialize(1000).has_value());
-    static constexpr auto NUM_MESSAGES = 1000000000;
-    auto code = fork();
-    if (code == 0) {
-        for (int i = 0; i < NUM_MESSAGES; ++i) {
-            {
-                while (!ring_buffer.Push(i)) {
-                    fmt::println("Failed Push: {}", i);
-                }
-                fmt::println("Push: {}", i);
-            }
+    auto child_process_handle = ChildProcessHandle::RunChildFunction([]() -> ChildProcessState {
+        SharedBuffer shared_buffer;
+        auto result = shared_buffer.Initialize("/test", 100);
+        if (!result.has_value()) {
+            fmt::println("{}", result.error().error_message);
         }
-    } else {
-        int volatile i = 1;
-        StopWatch stop_watch;
-        while (i) {
-            {
-                int64_t data {};
-                if (ring_buffer.Pop(data)) {
-                    fmt::println("Popped: {}", data);
-                    fmt::println("duration={}", stop_watch.ElapsedDuration<uint64_t, std::chrono::nanoseconds>());
-                    stop_watch.Reset();
-                }
-            }
+        while (reinterpret_cast<std::atomic_int*>(shared_buffer.GetBuffer())->load() != 1) {
+            std::this_thread::yield();
         }
-    }
+        return ChildProcessState::SUCCESS;
+    });
+
+    SharedBuffer shared_buffer;
+    auto result = shared_buffer.Initialize("/test", 100);
+    ASSERT_TRUE(result.has_value()) << result.error().error_message;
+    reinterpret_cast<std::atomic_int*>(shared_buffer.GetBuffer())->store(1);
+    result = child_process_handle->WaitForChildProcess();
+    ASSERT_TRUE(result.has_value()) << result.error().error_message;
 }

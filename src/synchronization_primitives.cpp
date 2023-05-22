@@ -2,11 +2,80 @@
 #include "error.hpp"
 #include "fmt/core.h"
 
+#include <cerrno>
 #include <cstdio>
+#include <fcntl.h>
 #include <pthread.h>
+#include <semaphore.h>
 #include <unistd.h>
 
-auto InterProcessMutex::Initialize() -> std::expected<void, PikaError>
+auto Semaphore::New(std::string const& semaphore_name, int32_t initial_value) -> std::expected<Semaphore, PikaError>
+{
+    if (semaphore_name.at(0) != '/') {
+        return std::unexpected(PikaError { .error_type = PikaErrorType::SharedBufferError,
+            .error_message = "Semaphore::Initialize: Semaphore name must begin with a \"/\"" });
+    }
+    auto sem_ptr = sem_open(semaphore_name.c_str(), O_CREAT, S_IRUSR | S_IWUSR, initial_value);
+    if (sem_ptr == SEM_FAILED) {
+        auto error_message = strerror(errno);
+        errno = 0;
+        return std::unexpected(PikaError { .error_type = PikaErrorType::SharedBufferError,
+            .error_message = fmt::format("sem_open failed with error:{}",
+                error_message) });
+    }
+    Semaphore sem;
+    sem.m_sem = sem_ptr;
+    sem.m_sem_name = semaphore_name;
+    return sem;
+}
+
+Semaphore::~Semaphore()
+{
+    if (m_sem != nullptr) {
+        auto ret = sem_unlink(m_sem_name.c_str());
+        if (ret != 0) {
+            auto error_message = strerror(errno);
+            errno = 0;
+            fmt::println(stderr, "Semaphore::~Semaphore sem_unlink failed with error {}", error_message);
+            return;
+        }
+        ret = sem_close(m_sem);
+        if (ret != 0) {
+            auto error_message = strerror(errno);
+            errno = 0;
+            fmt::println(stderr, "Semaphore::~Semaphore sem_close failed with error {}", error_message);
+            return;
+        }
+        m_sem = nullptr;
+    }
+}
+
+Semaphore::Semaphore(Semaphore&& other)
+{
+    m_sem = other.m_sem;
+    m_sem_name = std::move(other.m_sem_name);
+    other.m_sem = nullptr;
+}
+
+auto Semaphore::Wait() -> void
+{
+    if (sem_wait(m_sem) != 0) {
+        auto error_message = strerror(errno);
+        errno = 0;
+        fmt::println(stderr, "Semaphore::Wait sem_wait failed with error {}", error_message);
+    }
+}
+
+auto Semaphore::Post() -> void
+{
+    if (sem_post(m_sem) != 0) {
+        auto error_message = strerror(errno);
+        errno = 0;
+        fmt::println(stderr, "Semaphore::Post sem_post failed with error {}", error_message);
+    }
+}
+
+auto Mutex::Initialize(bool intra_process) -> std::expected<void, PikaError>
 {
     pthread_mutexattr_t mutex_attr {};
     auto return_code = pthread_mutexattr_init(&mutex_attr);
@@ -16,12 +85,14 @@ auto InterProcessMutex::Initialize() -> std::expected<void, PikaError>
                 .error_message = fmt::format("pthread_mutexattr_init failed with error code:{}", return_code) }
         };
     }
-    return_code = pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED);
-    if (return_code != 0) {
-        return std::unexpected {
-            PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
-                .error_message = fmt::format("pthread_mutexattr_setpshared failed with error code:{}", return_code) }
-        };
+    if (intra_process) {
+        return_code = pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED);
+        if (return_code != 0) {
+            return std::unexpected {
+                PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
+                    .error_message = fmt::format("pthread_mutexattr_setpshared failed with error code:{}", return_code) }
+            };
+        }
     }
     return_code = pthread_mutex_init(&m_pthread_mutex, &mutex_attr);
     if (return_code != 0) {
@@ -34,7 +105,7 @@ auto InterProcessMutex::Initialize() -> std::expected<void, PikaError>
     return {};
 }
 
-InterProcessMutex ::~InterProcessMutex()
+Mutex ::~Mutex()
 {
     if (m_initialized) {
         auto return_code = pthread_mutex_destroy(&m_pthread_mutex);
@@ -44,7 +115,7 @@ InterProcessMutex ::~InterProcessMutex()
     }
 }
 
-auto InterProcessMutex::Lock() -> std::expected<void, PikaError>
+auto Mutex::Lock() -> std::expected<void, PikaError>
 {
     if (not m_initialized) {
         return std::unexpected {
@@ -62,7 +133,7 @@ auto InterProcessMutex::Lock() -> std::expected<void, PikaError>
     return {};
 }
 
-auto InterProcessMutex::Unlock() -> std::expected<void, PikaError>
+auto Mutex::Unlock() -> std::expected<void, PikaError>
 {
     if (not m_initialized) {
         return std::unexpected {
@@ -80,7 +151,7 @@ auto InterProcessMutex::Unlock() -> std::expected<void, PikaError>
     return {};
 }
 
-auto LockedMutex::New(InterProcessMutex* mutex) -> std::expected<LockedMutex, PikaError>
+auto LockedMutex::New(Mutex* mutex) -> std::expected<LockedMutex, PikaError>
 {
     PIKA_ASSERT(mutex != nullptr);
     if (not mutex->m_initialized) {
@@ -108,7 +179,7 @@ LockedMutex::~LockedMutex()
     }
 }
 
-auto InterProcessConditionVariable::Initialize() -> std::expected<void, PikaError>
+auto ConditionVariable::Initialize(bool intra_process) -> std::expected<void, PikaError>
 {
     pthread_condattr_t cond_attr {};
     auto return_code = pthread_condattr_init(&cond_attr);
@@ -118,12 +189,14 @@ auto InterProcessConditionVariable::Initialize() -> std::expected<void, PikaErro
                 .error_message = fmt::format("pthread_condattr_init failed with error code:{}", return_code) }
         };
     }
-    return_code = pthread_condattr_setpshared(&cond_attr, PTHREAD_PROCESS_SHARED);
-    if (return_code != 0) {
-        return std::unexpected {
-            PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
-                .error_message = fmt::format("pthread_condattr_setpshared failed with error code:{}", return_code) }
-        };
+    if (intra_process) {
+        return_code = pthread_condattr_setpshared(&cond_attr, PTHREAD_PROCESS_SHARED);
+        if (return_code != 0) {
+            return std::unexpected {
+                PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
+                    .error_message = fmt::format("pthread_condattr_setpshared failed with error code:{}", return_code) }
+            };
+        }
     }
     return_code = pthread_cond_init(&m_pthread_cond, &cond_attr);
     if (return_code != 0) {
@@ -136,7 +209,7 @@ auto InterProcessConditionVariable::Initialize() -> std::expected<void, PikaErro
     return {};
 }
 
-InterProcessConditionVariable ::~InterProcessConditionVariable()
+ConditionVariable ::~ConditionVariable()
 {
     if (m_initialized) {
         auto return_code = pthread_cond_destroy(&m_pthread_cond);

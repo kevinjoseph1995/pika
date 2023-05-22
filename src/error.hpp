@@ -15,10 +15,13 @@ auto PrintBackTrace() -> void;
         }                                                                                   \
     } while (0)
 
+#define TODO(message) PIKA_ASSERT(false, message)
+
 enum class PikaErrorType {
     Unknown,
     SharedBufferError,
-    SyncPrimitiveError
+    SyncPrimitiveError,
+    SharedRingBufferError
 };
 
 struct PikaError {

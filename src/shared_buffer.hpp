@@ -10,6 +10,7 @@ public:
     SharedBuffer() = default;
     SharedBuffer(SharedBuffer const&) = delete;
     SharedBuffer(SharedBuffer&&);
+    void operator=(SharedBuffer&&);
     ~SharedBuffer();
     [[nodiscard]] auto Initialize(std::string const& identifier, uint64_t size) -> std::expected<void, PikaError>;
 

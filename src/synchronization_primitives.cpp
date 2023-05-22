@@ -32,20 +32,14 @@ auto Semaphore::New(std::string const& semaphore_name, int32_t initial_value) ->
 Semaphore::~Semaphore()
 {
     if (m_sem != nullptr) {
-        auto ret = sem_unlink(m_sem_name.c_str());
+        auto ret = sem_close(m_sem);
         if (ret != 0) {
             auto error_message = strerror(errno);
             errno = 0;
-            fmt::println(stderr, "Semaphore::~Semaphore sem_unlink failed with error {}", error_message);
+            fmt::println(stderr, "Semaphore::~Semaphore sem_unlink({}) failed with error {}", m_sem_name, error_message);
             return;
         }
-        ret = sem_close(m_sem);
-        if (ret != 0) {
-            auto error_message = strerror(errno);
-            errno = 0;
-            fmt::println(stderr, "Semaphore::~Semaphore sem_close failed with error {}", error_message);
-            return;
-        }
+        m_sem_name.clear();
         m_sem = nullptr;
     }
 }

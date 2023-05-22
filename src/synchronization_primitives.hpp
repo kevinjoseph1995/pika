@@ -53,11 +53,10 @@ struct LockedMutex {
         m_mutex = other.m_mutex;
         other.m_mutex = nullptr;
     };
-    [[nodiscard]] LockedMutex& operator=(LockedMutex&& other)
+    void operator=(LockedMutex&& other)
     {
         m_mutex = other.m_mutex;
         other.m_mutex = nullptr;
-        return *this;
     }
 
 private:

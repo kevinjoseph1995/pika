@@ -71,15 +71,6 @@ auto SharedBuffer::Initialize(std::string const& identifier, uint64_t size) -> s
 
 SharedBuffer::~SharedBuffer()
 {
-    if (m_fd != -1) {
-        auto result = shm_unlink(m_identifier.c_str());
-        if (result != 0) {
-            auto error_message = strerror(errno);
-            errno = 0;
-            fmt::println(stderr, "shm_unlink({}) failed with error:{}", m_identifier, error_message);
-        }
-        m_fd = -1;
-    }
     if (m_data != nullptr) {
         auto result = munmap(m_data, m_size);
         if (result != 0) {
@@ -88,6 +79,15 @@ SharedBuffer::~SharedBuffer()
             fmt::println(stderr, "munmap failed with error:{}", m_identifier, error_message);
         }
         m_data = nullptr;
+    }
+    if (m_fd != -1) {
+        auto result = shm_unlink(m_identifier.c_str());
+        if (result != 0) {
+            auto error_message = strerror(errno);
+            errno = 0;
+            fmt::println(stderr, "shm_unlink({}) failed with error:{}", m_identifier, error_message);
+        }
+        m_fd = -1;
     }
     m_size = 0;
     m_identifier.resize(0);
@@ -99,7 +99,19 @@ SharedBuffer::SharedBuffer(SharedBuffer&& other)
     m_fd = other.m_fd;
     m_data = other.m_data;
     m_size = other.m_size;
-    other.m_identifier = "";
+    other.m_identifier.clear();
+    other.m_fd = -1;
+    other.m_data = nullptr;
+    other.m_size = 0;
+}
+
+void SharedBuffer::operator=(SharedBuffer&& other)
+{
+    m_identifier = other.m_identifier;
+    m_fd = other.m_fd;
+    m_data = other.m_data;
+    m_size = other.m_size;
+    other.m_identifier.clear();
     other.m_fd = -1;
     other.m_data = nullptr;
     other.m_size = 0;

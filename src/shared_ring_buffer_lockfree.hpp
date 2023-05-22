@@ -64,7 +64,7 @@
 //     }
 
 // private:
-//     auto increment(size_t idx) const -> size_t
+//     auto increment(uint64_t idx) const -> uint64_t
 //     {
 //         return (idx + 1) % m_capacity;
 //     }

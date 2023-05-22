@@ -6,6 +6,7 @@ option(PIKA_ENABLE_BACKTRACE "Enable backtrace" OFF)
 add_library(pika SHARED shared_buffer.cpp
                         error.cpp
                         process_fork.cpp
+                        ring_buffer.cpp
                         synchronization_primitives.cpp
 )
 target_include_directories(pika PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

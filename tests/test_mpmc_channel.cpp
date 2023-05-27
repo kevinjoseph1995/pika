@@ -2,6 +2,7 @@
 #include "fmt/core.h"
 #include "process_fork.hpp"
 
+#include <expected>
 #include <gtest/gtest.h>
 #include <thread>
 

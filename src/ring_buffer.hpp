@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <type_traits>
 
 template<typename ElementType>
@@ -15,29 +16,9 @@ struct SharedRingBuffer;
 
 struct WriteSlot {
     auto GetElement() const -> uint8_t* { return m_element; }
-    ~WriteSlot()
-    {
-        if (m_cv != nullptr) {
-            m_locked_mutex.~LockedMutex();
-            m_cv->Signal();
-            m_cv = nullptr;
-        }
-    }
-    WriteSlot(WriteSlot&& other)
-        : m_element(other.m_element)
-        , m_locked_mutex(std::move(other.m_locked_mutex))
-        , m_cv(other.m_cv)
-    {
-        other.m_cv = nullptr;
-    }
-    WriteSlot& operator=(WriteSlot&& other)
-    {
-        m_element = other.m_element;
-        m_locked_mutex = std::move(other.m_locked_mutex);
-        m_cv = other.m_cv;
-        other.m_cv = nullptr;
-        return *this;
-    }
+    ~WriteSlot();
+    WriteSlot(WriteSlot&& other);
+    void operator=(WriteSlot&& other);
 
 private:
     WriteSlot(LockedMutex locked_mutex, ConditionVariable* cv, uint8_t* element)
@@ -54,29 +35,9 @@ private:
 
 struct ReadSlot {
     auto GetElement() const -> uint8_t const* { return m_element; }
-    ~ReadSlot()
-    {
-        if (m_cv != nullptr) {
-            m_locked_mutex.~LockedMutex();
-            m_cv->Signal();
-            m_cv = nullptr;
-        }
-    }
-    ReadSlot(ReadSlot&& other)
-        : m_element(other.m_element)
-        , m_locked_mutex(std::move(other.m_locked_mutex))
-        , m_cv(other.m_cv)
-    {
-        other.m_cv = nullptr;
-    }
-    ReadSlot& operator=(ReadSlot&& other)
-    {
-        m_element = other.m_element;
-        m_locked_mutex = std::move(other.m_locked_mutex);
-        m_cv = other.m_cv;
-        other.m_cv = nullptr;
-        return *this;
-    }
+    ~ReadSlot();
+    ReadSlot(ReadSlot&& other);
+    void operator=(ReadSlot&& other);
 
 protected:
     ReadSlot(LockedMutex locked_mutex, ConditionVariable* cv, uint8_t const* element)

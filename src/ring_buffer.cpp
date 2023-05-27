@@ -99,3 +99,53 @@ auto RingBuffer::Initialize(uint8_t* ring_buffer, uint64_t element_size, uint64_
     --m_header.count;
     return read_slot;
 }
+
+WriteSlot ::~WriteSlot()
+{
+    if (m_cv != nullptr) {
+        m_locked_mutex.~LockedMutex();
+        m_cv->Signal();
+        m_cv = nullptr;
+    }
+}
+
+void WriteSlot::operator=(WriteSlot&& other)
+{
+    m_element = other.m_element;
+    m_locked_mutex = std::move(other.m_locked_mutex);
+    m_cv = other.m_cv;
+    other.m_cv = nullptr;
+}
+
+WriteSlot::WriteSlot(WriteSlot&& other)
+    : m_element(other.m_element)
+    , m_locked_mutex(std::move(other.m_locked_mutex))
+    , m_cv(other.m_cv)
+{
+    other.m_cv = nullptr;
+    other.m_element = nullptr;
+}
+
+ReadSlot::~ReadSlot()
+{
+    if (m_cv != nullptr) {
+        m_locked_mutex.~LockedMutex();
+        m_cv->Signal();
+        m_cv = nullptr;
+    }
+}
+ReadSlot::ReadSlot(ReadSlot&& other)
+    : m_element(other.m_element)
+    , m_locked_mutex(std::move(other.m_locked_mutex))
+    , m_cv(other.m_cv)
+{
+    other.m_cv = nullptr;
+    other.m_element = nullptr;
+}
+void ReadSlot::operator=(ReadSlot&& other)
+{
+    m_element = other.m_element;
+    m_locked_mutex = std::move(other.m_locked_mutex);
+    m_cv = other.m_cv;
+    other.m_cv = nullptr;
+}

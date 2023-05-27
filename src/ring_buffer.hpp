@@ -112,9 +112,9 @@ private:
     }
 
     struct Header {
-        Mutex mutex; // Coarse grained lock protecting all accesses to the buffer
-        ConditionVariable not_empty_condition_variable;
-        ConditionVariable not_full_condition_variable;
+        Mutex mutex {}; // Coarse grained lock protecting all accesses to the buffer
+        ConditionVariable not_empty_condition_variable {};
+        ConditionVariable not_full_condition_variable {};
         uint64_t write_index = 0;
         uint64_t read_index = 0;
         uint64_t count = 0;

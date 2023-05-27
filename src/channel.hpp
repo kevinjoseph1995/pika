@@ -36,13 +36,14 @@ private:
     friend struct IntraProcessChannelMPMC;
     ConsumerMPMC() = default;
     SharedBuffer m_buffer;
-    RingBuffer* m_ring_buffer;
+    RingBuffer* m_ring_buffer = nullptr; // This ring buffer lives within the shared buffer
 };
 
 template<typename DataT>
 struct ProducerMPMC {
     auto Send(DataT const& data) -> std::expected<void, PikaError>
     {
+        PIKA_ASSERT(m_ring_buffer != nullptr);
         auto ptr = m_ring_buffer->GetWriteSlot();
         if (not ptr.has_value()) {
             return std::unexpected { ptr.error() };
@@ -57,7 +58,7 @@ private:
     friend struct IntraProcessChannelMPMC;
     ProducerMPMC() = default;
     SharedBuffer m_buffer;
-    RingBuffer* m_ring_buffer = nullptr;
+    RingBuffer* m_ring_buffer = nullptr; // This ring buffer lives within the shared buffer
 };
 
 template<typename DataT>

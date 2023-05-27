@@ -53,6 +53,7 @@ Semaphore::Semaphore(Semaphore&& other)
 
 auto Semaphore::Wait() -> void
 {
+    PIKA_ASSERT(m_sem != nullptr);
     if (sem_wait(m_sem) != 0) {
         auto error_message = strerror(errno);
         errno = 0;
@@ -62,6 +63,7 @@ auto Semaphore::Wait() -> void
 
 auto Semaphore::Post() -> void
 {
+    PIKA_ASSERT(m_sem != nullptr);
     if (sem_post(m_sem) != 0) {
         auto error_message = strerror(errno);
         errno = 0;

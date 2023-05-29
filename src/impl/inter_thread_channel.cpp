@@ -1,4 +1,5 @@
-#include "inter_process_channel.hpp"
+#include "inter_thread_channel.hpp"
+
 #include "backing_storage.hpp"
 #include "error.hpp"
 #include "utils.hpp"
@@ -11,8 +12,8 @@ using namespace std::chrono_literals;
 static auto GetRingBufferSlotsOffset(uint64_t element_alignment)
 {
     PIKA_ASSERT(element_alignment % 2 == 0);
-    if (element_alignment < sizeof(inter_process::SharedBufferHeader)) {
-        return ((sizeof(inter_process::SharedBufferHeader) / element_alignment) + 1)
+    if (element_alignment < sizeof(inter_thread::SharedBufferHeader)) {
+        return ((sizeof(inter_thread::SharedBufferHeader) / element_alignment) + 1)
             * element_alignment;
     } else {
         return element_alignment;
@@ -27,27 +28,27 @@ static auto GetRingBufferSlotsOffset(uint64_t element_alignment)
 }
 
 static auto CreateSharedBuffer(pika::ChannelParameters const& channel_params, uint64_t element_size,
-    uint64_t element_alignment) -> std::expected<InterProcessSharedBuffer, PikaError>
+    uint64_t element_alignment) -> std::expected<InterThreadSharedBuffer, PikaError>
 {
-    InterProcessSharedBuffer buffer;
+    InterThreadSharedBuffer buffer;
     auto shared_buffer_result = buffer.Initialize(channel_params.channel_name,
         GetBufferSize(channel_params, element_size, element_alignment));
     if (!shared_buffer_result.has_value()) {
         return std::unexpected { shared_buffer_result.error() };
     }
     if (reinterpret_cast<std::uintptr_t>(buffer.GetBuffer())
-            % alignof(inter_process::SharedBufferHeader)
+            % alignof(inter_thread::SharedBufferHeader)
         != 0) {
         return std::unexpected(PikaError { .error_type = PikaErrorType::SharedRingBufferError,
             .error_message = "CreateSharedBuffer::Create buffer is not aligned" });
     }
-    auto header = reinterpret_cast<inter_process::SharedBufferHeader*>(buffer.GetBuffer());
+    auto header = reinterpret_cast<inter_thread::SharedBufferHeader*>(buffer.GetBuffer());
     if (header->m_consumer_count.load() == 0 && header->m_producer_count.load() == 0) {
         // This segment was not previously initialized by another producer/consumer
-        header = new (header) inter_process::SharedBufferHeader {};
+        header = new (header) inter_thread::SharedBufferHeader {};
         auto result = header->ring_buffer.Initialize(
             buffer.GetBuffer() + GetRingBufferSlotsOffset(element_alignment), element_size,
-            element_alignment, channel_params.queue_size, true);
+            element_alignment, channel_params.queue_size, false);
         if (not result.has_value()) {
             return std::unexpected { result.error() };
         }
@@ -78,12 +79,9 @@ static auto CreateSharedBuffer(pika::ChannelParameters const& channel_params, ui
     return buffer;
 }
 
-InterProcessConsumer::~InterProcessConsumer() { getHeader().m_consumer_count.fetch_sub(1); }
-InterProcessProducer::~InterProcessProducer() { getHeader().m_producer_count.fetch_sub(1); }
-
-auto InterProcessConsumer::Create(pika::ChannelParameters const& channel_params,
+auto InterThreadConsumer::Create(pika::ChannelParameters const& channel_params,
     uint64_t element_size, uint64_t element_alignment)
-    -> std::expected<std::unique_ptr<InterProcessConsumer>, PikaError>
+    -> std::expected<std::unique_ptr<InterThreadConsumer>, PikaError>
 {
     auto result = Semaphore::New(channel_params.channel_name, 1);
     if (!result.has_value()) {
@@ -102,15 +100,15 @@ auto InterProcessConsumer::Create(pika::ChannelParameters const& channel_params,
         return std::unexpected { result.error() };
     }
     auto header
-        = reinterpret_cast<inter_process::SharedBufferHeader*>(shared_buffer_result->GetBuffer());
+        = reinterpret_cast<inter_thread::SharedBufferHeader*>(shared_buffer_result->GetBuffer());
     header->m_consumer_count.fetch_add(1);
-    return std::unique_ptr<InterProcessConsumer>(
-        new InterProcessConsumer(std::move(shared_buffer_result.value())));
+    return std::unique_ptr<InterThreadConsumer>(
+        new InterThreadConsumer(shared_buffer_result.value()));
 }
 
-auto InterProcessProducer::Create(pika::ChannelParameters const& channel_params,
+auto InterThreadProducer::Create(pika::ChannelParameters const& channel_params,
     uint64_t element_size, uint64_t element_alignment)
-    -> std::expected<std::unique_ptr<InterProcessProducer>, PikaError>
+    -> std::expected<std::unique_ptr<InterThreadProducer>, PikaError>
 {
     auto result = Semaphore::New(channel_params.channel_name, 1);
     if (!result.has_value()) {
@@ -129,13 +127,13 @@ auto InterProcessProducer::Create(pika::ChannelParameters const& channel_params,
         return std::unexpected { result.error() };
     }
     auto header
-        = reinterpret_cast<inter_process::SharedBufferHeader*>(shared_buffer_result->GetBuffer());
+        = reinterpret_cast<inter_thread::SharedBufferHeader*>(shared_buffer_result->GetBuffer());
     header->m_producer_count.fetch_add(1);
-    return std::unique_ptr<InterProcessProducer>(
-        new InterProcessProducer(std::move(shared_buffer_result.value())));
+    return std::unique_ptr<InterThreadProducer>(
+        new InterThreadProducer(std::move(shared_buffer_result.value())));
 }
 
-auto InterProcessConsumer::Connect() -> std::expected<void, PikaError>
+auto InterThreadConsumer::Connect() -> std::expected<void, PikaError>
 {
     // TODO: Optimize me
     while (getHeader().m_producer_count.load() == 0) {
@@ -144,7 +142,7 @@ auto InterProcessConsumer::Connect() -> std::expected<void, PikaError>
     return {};
 }
 
-auto InterProcessConsumer::Receive(uint8_t* const destination_buffer,
+auto InterThreadConsumer::Receive(uint8_t* const destination_buffer,
     uint64_t destination_buffer_size) -> std::expected<void, PikaError>
 {
     auto read_slot = getHeader().ring_buffer.GetReadSlot();
@@ -155,7 +153,7 @@ auto InterProcessConsumer::Receive(uint8_t* const destination_buffer,
     return {};
 }
 
-auto InterProcessProducer::Connect() -> std::expected<void, PikaError>
+auto InterThreadProducer::Connect() -> std::expected<void, PikaError>
 {
     // TODO: Optimize me
     while (getHeader().m_consumer_count.load() == 0) {
@@ -164,7 +162,7 @@ auto InterProcessProducer::Connect() -> std::expected<void, PikaError>
     return {};
 }
 
-auto InterProcessProducer::Send(uint8_t const* const source_buffer, uint64_t size)
+auto InterThreadProducer::Send(uint8_t const* const source_buffer, uint64_t size)
     -> std::expected<void, PikaError>
 {
     auto write_slot = getHeader().ring_buffer.GetWriteSlot();

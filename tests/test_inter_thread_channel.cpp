@@ -1,5 +1,4 @@
 #include "channel_interface.hpp"
-#include "process_fork.hpp"
 #include "test_utils.hpp"
 
 #include <chrono>
@@ -11,19 +10,19 @@
 
 using namespace std::chrono_literals;
 
-TEST(IPCChannel, BasicTest)
+TEST(InterThreadChannel, BasicTest)
 {
     auto params = pika::ChannelParameters {
-        .channel_name = "/test", .queue_size = 4, .channel_type = pika::ChannelType::InterProcess
+        .channel_name = "/test", .queue_size = 4, .channel_type = pika::ChannelType::InterThread
     };
     auto result = pika::Channel::CreateConsumer<int>(params);
     ASSERT_TRUE(result.has_value()) << result.error().error_message;
 }
 
-TEST(IPCChannel, Connection)
+TEST(InterThreadChannel, Connection)
 {
     auto params = pika::ChannelParameters {
-        .channel_name = "/test", .queue_size = 4, .channel_type = pika::ChannelType::InterProcess
+        .channel_name = "/test", .queue_size = 4, .channel_type = pika::ChannelType::InterThread
     };
     auto result1 = pika::Channel::CreateConsumer<int>(params);
     ASSERT_TRUE(result1.has_value()) << result1.error().error_message;
@@ -34,22 +33,22 @@ TEST(IPCChannel, Connection)
     ASSERT_TRUE(result2->Connect().has_value());
 }
 
-TEST(IPCChannel, TxRx)
+TEST(InterThreadChannel, TxRx)
 {
     auto const params = pika::ChannelParameters {
-        .channel_name = "/test", .queue_size = 4, .channel_type = pika::ChannelType::InterProcess
+        .channel_name = "/test", .queue_size = 4, .channel_type = pika::ChannelType::InterThread
     };
     static constexpr auto NUMBER_OF_PACKETS_TO_SEND = 10;
-    auto child_process_handle = ChildProcessHandle::RunChildFunction([&]() -> ChildProcessState {
+    auto thread = std::thread([&]() {
         auto producer = pika::Channel::CreateProducer<int>(params);
         if (not producer.has_value()) {
             fmt::println(stderr, "{}", producer.error().error_message);
-            return ChildProcessState::FAIL;
+            return;
         }
         auto connect_result = producer->Connect();
         if (not connect_result.has_value()) {
             fmt::println(stderr, "{}", connect_result.error().error_message);
-            return ChildProcessState::FAIL;
+            return;
         }
 
         for (int i = 0; i < NUMBER_OF_PACKETS_TO_SEND; ++i) {
@@ -57,12 +56,12 @@ TEST(IPCChannel, TxRx)
             std::this_thread::sleep_for(1ms);
             if (not send_result.has_value()) {
                 fmt::println(stderr, "producer->Send Error: {}", send_result.error().error_message);
-                return ChildProcessState::FAIL;
+                return;
             }
         }
-        return ChildProcessState::SUCCESS;
+        return;
     });
-    ASSERT_TRUE(child_process_handle.has_value()) << child_process_handle.error().error_message;
+
     // Setup consumer
     auto consumer = pika::Channel::CreateConsumer<int>(params);
     auto connect_result = consumer->Connect();
@@ -80,7 +79,5 @@ TEST(IPCChannel, TxRx)
         fmt::println("Rx cycle took:{} microseconds", watch.ElapsedDurationUs());
     }
 
-    auto child_process_exit_status = child_process_handle->WaitForChildProcess();
-    ASSERT_TRUE(child_process_exit_status.has_value())
-        << child_process_handle.error().error_message;
+    thread.join();
 }

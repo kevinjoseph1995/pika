@@ -2,6 +2,7 @@
 
 #include "error.hpp"
 #include "inter_process_channel.hpp"
+#include "inter_thread_channel.hpp"
 
 namespace pika {
 auto Channel::__CreateConsumerImpl(ChannelParameters const& channel_params, uint64_t element_size,
@@ -11,8 +12,7 @@ auto Channel::__CreateConsumerImpl(ChannelParameters const& channel_params, uint
     case ChannelType::InterProcess:
         return InterProcessConsumer::Create(channel_params, element_size, element_alignment);
     case ChannelType::InterThread:
-        TODO("ChannelType::InterThread");
-        break;
+        return InterThreadConsumer::Create(channel_params, element_size, element_alignment);
     }
 }
 
@@ -23,8 +23,7 @@ auto Channel::__CreateProducerImpl(ChannelParameters const& channel_params, uint
     case ChannelType::InterProcess:
         return InterProcessProducer::Create(channel_params, element_size, element_alignment);
     case ChannelType::InterThread:
-        TODO("ChannelType::InterThread");
-        break;
+        return InterThreadProducer::Create(channel_params, element_size, element_alignment);
     }
 }
 } // namespace pika

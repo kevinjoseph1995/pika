@@ -25,29 +25,18 @@ static auto GetRingBufferSlotsOffset(uint64_t element_alignment)
         + (channel_parameters.queue_size * element_size);
 }
 
-auto InterProcessConsumer::Create(pika::ChannelParameters const& channel_params,
-    uint64_t element_size, uint64_t element_alignment)
-    -> std::expected<std::unique_ptr<InterProcessConsumer>, PikaError>
+static auto CreateSharedBuffer(pika::ChannelParameters const& channel_params, uint64_t element_size,
+    uint64_t element_alignment) -> std::expected<SharedBuffer, PikaError>
 {
-    auto result = Semaphore::New(channel_params.channel_name, 1);
-    if (!result.has_value()) {
-        return std::unexpected { result.error() };
-    }
-    auto& sem = result.value();
-    sem.Wait();
-    Defer defer([&sem]() { sem.Post(); });
-
-    // We now have exclusive access to either create or re-open an already
-    // existing shared memory segment
     SharedBuffer buffer;
     auto shared_buffer_result = buffer.Initialize(channel_params.channel_name,
         GetBufferSize(channel_params, element_size, element_alignment));
     if (!shared_buffer_result.has_value()) {
-        return std::unexpected { result.error() };
+        return std::unexpected { shared_buffer_result.error() };
     }
     if (reinterpret_cast<std::uintptr_t>(buffer.GetBuffer()) % alignof(SharedBufferHeader) != 0) {
         return std::unexpected(PikaError { .error_type = PikaErrorType::SharedRingBufferError,
-            .error_message = "InterProcessConsumer::Create buffer is not aligned" });
+            .error_message = "CreateSharedBuffer::Create buffer is not aligned" });
     }
     auto header = reinterpret_cast<SharedBufferHeader*>(buffer.GetBuffer());
     if (header->m_consumer_count.load() == 0 && header->m_producer_count.load() == 0) {
@@ -59,8 +48,86 @@ auto InterProcessConsumer::Create(pika::ChannelParameters const& channel_params,
         if (not result.has_value()) {
             return std::unexpected { result.error() };
         }
+    } else {
+        // This segment was previously initialized by another producer / consumer
+        // Validate the header with the current parameters
+        if (channel_params.queue_size != header->ring_buffer.GetQueueLength()) {
+            return std::unexpected { PikaError { .error_type = PikaErrorType::SharedRingBufferError,
+                .error_message = fmt::format("Existing ring buffer queue length: {}; Requested "
+                                             "ring buffer queue length: {}",
+                    header->ring_buffer.GetQueueLength(), channel_params.queue_size) } };
+        }
+        if (element_size != header->ring_buffer.GetElementSizeInBytes()) {
+            return std::unexpected { PikaError { .error_type = PikaErrorType::SharedRingBufferError,
+                .error_message
+                = fmt::format("Existing ring buffer element size(in bytes): {}; Requested "
+                              "element size(in bytes): {}",
+                    header->ring_buffer.GetElementSizeInBytes(), element_size) } };
+        }
+        if (element_alignment != header->ring_buffer.GetElementAlignment()) {
+            return std::unexpected { PikaError { .error_type = PikaErrorType::SharedRingBufferError,
+                .error_message
+                = fmt::format("Existing ring buffer element alignment: {}; Requested "
+                              "element alignment: {}",
+                    header->ring_buffer.GetElementAlignment(), element_alignment) } };
+        }
     }
-    return std::unique_ptr<InterProcessConsumer>(new InterProcessConsumer(std::move(buffer)));
+    return buffer;
+}
+
+InterProcessConsumer::~InterProcessConsumer() { getHeader().m_consumer_count.fetch_sub(1); }
+InterProcessProducer::~InterProcessProducer() { getHeader().m_producer_count.fetch_sub(1); }
+
+auto InterProcessConsumer::Create(pika::ChannelParameters const& channel_params,
+    uint64_t element_size, uint64_t element_alignment)
+    -> std::expected<std::unique_ptr<InterProcessConsumer>, PikaError>
+{
+    auto result = Semaphore::New(channel_params.channel_name, 1);
+    if (!result.has_value()) {
+        return std::unexpected { result.error() };
+    }
+    auto& sem = result.value();
+    sem.Wait();
+    Defer defer([&sem]() {
+        sem.Post();
+    }); // Release exclusive access of the header at the end of this block
+
+    // We now have exclusive access to either create or re-open an already
+    // existing shared memory segment
+    auto shared_buffer_result = CreateSharedBuffer(channel_params, element_size, element_alignment);
+    if (not shared_buffer_result.has_value()) {
+        return std::unexpected { result.error() };
+    }
+    auto header = reinterpret_cast<SharedBufferHeader*>(shared_buffer_result->GetBuffer());
+    header->m_consumer_count.fetch_add(1);
+    return std::unique_ptr<InterProcessConsumer>(
+        new InterProcessConsumer(std::move(shared_buffer_result.value())));
+}
+
+auto InterProcessProducer::Create(pika::ChannelParameters const& channel_params,
+    uint64_t element_size, uint64_t element_alignment)
+    -> std::expected<std::unique_ptr<InterProcessProducer>, PikaError>
+{
+    auto result = Semaphore::New(channel_params.channel_name, 1);
+    if (!result.has_value()) {
+        return std::unexpected { result.error() };
+    }
+    auto& sem = result.value();
+    sem.Wait();
+    Defer defer([&sem]() {
+        sem.Post();
+    }); // Release exclusive access of the header at the end of this block
+
+    // We now have exclusive access to either create or re-open an already
+    // existing shared memory segment
+    auto shared_buffer_result = CreateSharedBuffer(channel_params, element_size, element_alignment);
+    if (not shared_buffer_result.has_value()) {
+        return std::unexpected { result.error() };
+    }
+    auto header = reinterpret_cast<SharedBufferHeader*>(shared_buffer_result->GetBuffer());
+    header->m_producer_count.fetch_add(1);
+    return std::unique_ptr<InterProcessProducer>(
+        new InterProcessProducer(std::move(shared_buffer_result.value())));
 }
 
 auto InterProcessConsumer::Connect() -> std::expected<void, PikaError>

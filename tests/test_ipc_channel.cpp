@@ -1,8 +1,8 @@
 #include "channel_interface.hpp"
-#include "fmt/core.h"
 #include "process_fork.hpp"
 
 #include <expected>
+#include <fmt/core.h>
 #include <gtest/gtest.h>
 #include <thread>
 

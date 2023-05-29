@@ -61,10 +61,15 @@ public:
 
     [[nodiscard]] auto GetReadSlot() -> std::expected<ReadSlot, PikaError>;
 
+    [[nodiscard]] auto GetElementAlignment() const -> uint64_t { return m_element_alignment; }
+    [[nodiscard]] auto GetElementSizeInBytes() const -> uint64_t { return m_element_size_in_bytes; }
+    [[nodiscard]] auto GetElementAlignment() -> uint64_t { return m_element_alignment; }
+    [[nodiscard]] auto GetQueueLength() -> uint64_t { return m_queue_length; }
+
 private:
     [[nodiscard]] auto getBufferSlot(uint64_t index) -> uint8_t*
     {
-        return m_ring_buffer + index * m_element_size;
+        return m_ring_buffer + index * m_element_size_in_bytes;
     }
 
     struct Header {
@@ -78,8 +83,8 @@ private:
 
     uint8_t* m_ring_buffer = nullptr;
     uint64_t m_element_alignment = 0;
-    uint64_t m_element_size = 0;
-    uint64_t m_max_number_of_elements = 0;
+    uint64_t m_element_size_in_bytes = 0;
+    uint64_t m_queue_length = 0;
 };
 
 #endif

@@ -3,7 +3,6 @@
 
 #include "error.hpp"
 
-#include <__expected/unexpected.h>
 #include <cstdint>
 #include <expected>
 #include <memory>

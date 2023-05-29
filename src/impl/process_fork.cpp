@@ -2,7 +2,6 @@
 #include "error.hpp"
 #include "fmt/core.h"
 
-#include <__expected/unexpected.h>
 #include <sys/wait.h>
 
 auto ChildProcessHandle::WaitForChildProcess() -> std::expected<void, PikaError>

@@ -21,6 +21,7 @@ struct InterProcessConsumer : public pika::ConsumerImpl {
     auto Connect() -> std::expected<void, PikaError> override;
     auto Receive(uint8_t* const destination_buffer, uint64_t destination_buffer_size)
         -> std::expected<void, PikaError> override;
+    ~InterProcessConsumer();
 
 private:
     InterProcessConsumer(SharedBuffer buffer)
@@ -42,6 +43,7 @@ struct InterProcessProducer : public pika::ProducerImpl {
     auto Connect() -> std::expected<void, PikaError> override;
     auto Send(uint8_t const* const source_buffer, uint64_t size)
         -> std::expected<void, PikaError> override;
+    ~InterProcessProducer();
 
 private:
     InterProcessProducer(SharedBuffer buffer)

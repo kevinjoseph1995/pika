@@ -1,8 +1,23 @@
 #ifndef PIKA_TEST_UTILS_HPP
 #define PIKA_TEST_UTILS_HPP
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <random>
+
+auto inline GetRandomIntVector(uint64_t size) -> std::vector<int>
+{
+    // First create an instance of an engine.
+    std::random_device rnd_device;
+    // Specify the engine and distribution.
+    std::mt19937 mersenne_engine { rnd_device() }; // Generates random integers
+    std::uniform_int_distribution<int> dist { 1, 52 };
+    auto gen = [&dist, &mersenne_engine]() { return dist(mersenne_engine); };
+    std::vector<int> vec(size);
+    std::generate(begin(vec), end(vec), gen);
+    return vec;
+}
 
 template <typename Clock = std::chrono::high_resolution_clock> class StopWatch {
     typename Clock::time_point start_point;

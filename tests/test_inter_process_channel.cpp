@@ -3,6 +3,7 @@
 #include "test_utils.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <fmt/core.h>
@@ -39,7 +40,7 @@ TEST(InterProcessChannel, TxRx)
     auto const params = pika::ChannelParameters {
         .channel_name = "/test", .queue_size = 4, .channel_type = pika::ChannelType::InterProcess
     };
-    static constexpr auto NUMBER_OF_PACKETS_TO_SEND = 10;
+    auto const tx_data = GetRandomIntVector(100);
     auto child_process_handle = ChildProcessHandle::RunChildFunction([&]() -> ChildProcessState {
         auto producer = pika::Channel::CreateProducer<int>(params);
         if (not producer.has_value()) {
@@ -51,9 +52,8 @@ TEST(InterProcessChannel, TxRx)
             fmt::println(stderr, "{}", connect_result.error().error_message);
             return ChildProcessState::FAIL;
         }
-
-        for (int i = 0; i < NUMBER_OF_PACKETS_TO_SEND; ++i) {
-            auto send_result = producer->Send(static_cast<int>(i));
+        for (auto tx : tx_data) {
+            auto send_result = producer->Send(static_cast<int>(tx));
             std::this_thread::sleep_for(1ms);
             if (not send_result.has_value()) {
                 fmt::println(stderr, "producer->Send Error: {}", send_result.error().error_message);
@@ -68,13 +68,14 @@ TEST(InterProcessChannel, TxRx)
     auto connect_result = consumer->Connect();
     ASSERT_TRUE(connect_result.has_value()) << connect_result.error().error_message;
 
+    size_t index = 0;
     while (true) {
         StopWatch watch;
         int recv_packet {};
         auto recv_result = consumer->Receive(recv_packet);
         ASSERT_TRUE(recv_result.has_value()) << recv_result.error().error_message;
-        fmt::println(stderr, "{}", recv_packet);
-        if (recv_packet == NUMBER_OF_PACKETS_TO_SEND - 1) {
+        ASSERT_TRUE(recv_packet == tx_data[index++]);
+        if (index == tx_data.size() - 1) {
             break;
         }
         fmt::println("Rx cycle took:{} microseconds", watch.ElapsedDurationUs());

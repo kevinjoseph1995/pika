@@ -57,7 +57,7 @@ struct ConsumerImpl : public Endpoint {
 template <typename DataT> struct Producer {
     auto Send(DataT const& packet) -> std::expected<void, PikaError>
     {
-        return m_impl->Send(&packet, sizeof(packet));
+        return m_impl->Send(reinterpret_cast<uint8_t const*>(&packet), sizeof(packet));
     }
 
     auto Connect() -> std::expected<void, PikaError> { return m_impl->Connect(); }
@@ -74,7 +74,7 @@ private:
 template <typename DataT> struct Consumer {
     auto Receive(DataT& packet) -> std::expected<void, PikaError>
     {
-        return m_impl->Receive(&packet, sizeof(packet));
+        return m_impl->Receive(reinterpret_cast<uint8_t*>(&packet), sizeof(packet));
     }
 
     auto Connect() -> std::expected<void, PikaError> { return m_impl->Connect(); }

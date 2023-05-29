@@ -134,7 +134,7 @@ auto InterProcessConsumer::Connect() -> std::expected<void, PikaError>
 {
     // TODO: Optimize me
     while (getHeader().m_producer_count.load() == 0) {
-        std::this_thread::sleep_for(1s);
+        std::this_thread::sleep_for(1ms);
     }
     return {};
 }
@@ -154,10 +154,11 @@ auto InterProcessProducer::Connect() -> std::expected<void, PikaError>
 {
     // TODO: Optimize me
     while (getHeader().m_consumer_count.load() == 0) {
-        std::this_thread::sleep_for(1s);
+        std::this_thread::sleep_for(1ms);
     }
     return {};
 }
+
 auto InterProcessProducer::Send(uint8_t const* const source_buffer, uint64_t size)
     -> std::expected<void, PikaError>
 {

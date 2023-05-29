@@ -1,24 +1,5 @@
 #include "ring_buffer.hpp"
 
-auto RingBuffer::GetRingBufferOffset(uint64_t element_alignment) -> uint64_t
-{
-    if (element_alignment < sizeof(Header)) {
-        return ((sizeof(Header) / element_alignment) + 1) * element_alignment;
-    } else {
-        return element_alignment;
-    }
-}
-
-auto RingBuffer::GetRequiredBufferSize(uint64_t element_alignment, uint64_t element_size, uint64_t number_of_elements) -> uint64_t
-{
-    return GetRingBufferOffset(element_alignment) + (number_of_elements * element_size);
-}
-
-auto RingBuffer::GetAlignmentRequirement() -> uint64_t
-{
-    return std::alignment_of<Header>();
-}
-
 auto RingBuffer::Initialize(uint8_t* ring_buffer, uint64_t element_size, uint64_t element_alignment, uint64_t number_of_elements, bool is_intra_process) -> std::expected<void, PikaError>
 {
     if (ring_buffer == nullptr) {
@@ -27,7 +8,7 @@ auto RingBuffer::Initialize(uint8_t* ring_buffer, uint64_t element_size, uint64_
             .error_message = "SharedRingBuffer::Initialize buffer==nullptr" });
     }
 
-    if (reinterpret_cast<std::uintptr_t>(ring_buffer) % GetAlignmentRequirement() != 0) {
+    if (reinterpret_cast<std::uintptr_t>(ring_buffer) % element_alignment != 0) {
         return std::unexpected(PikaError {
             .error_type = PikaErrorType::SharedRingBufferError,
             .error_message = "SharedRingBuffer::Initialize buffer is not aligned" });

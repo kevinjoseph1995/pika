@@ -56,12 +56,6 @@ struct RingBuffer {
 public:
     [[nodiscard]] auto Initialize(uint8_t* buffer, uint64_t element_size, uint64_t element_alignment, uint64_t number_of_elements, bool is_intra_process) -> std::expected<void, PikaError>;
 
-    [[nodiscard]] static auto GetRingBufferOffset(uint64_t element_alignment) -> uint64_t;
-
-    [[nodiscard]] static auto GetRequiredBufferSize(uint64_t element_alignment, uint64_t element_size, uint64_t number_of_elements) -> uint64_t;
-
-    [[nodiscard]] static auto GetAlignmentRequirement() -> uint64_t;
-
     [[nodiscard]] auto GetWriteSlot() -> std::expected<WriteSlot, PikaError>;
 
     [[nodiscard]] auto GetReadSlot() -> std::expected<ReadSlot, PikaError>;
@@ -69,7 +63,7 @@ public:
 private:
     [[nodiscard]] auto getBufferSlot(uint64_t index) -> uint8_t*
     {
-        return m_ring_buffer + GetRingBufferOffset(m_element_alignment) + index * m_element_size;
+        return m_ring_buffer + index * m_element_size;
     }
 
     struct Header {

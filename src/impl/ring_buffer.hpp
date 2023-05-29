@@ -2,7 +2,6 @@
 #define PIKA_SHARED_RING_BUFFER_HPP
 
 #include "error.hpp"
-#include "shared_buffer.hpp"
 #include "synchronization_primitives.hpp"
 // System includes
 #include <atomic>
@@ -54,7 +53,7 @@ protected:
 struct RingBuffer {
 public:
     [[nodiscard]] auto Initialize(uint8_t* buffer, uint64_t element_size,
-        uint64_t element_alignment, uint64_t number_of_elements, bool is_intra_process)
+        uint64_t element_alignment, uint64_t number_of_elements, bool is_inter_process)
         -> std::expected<void, PikaError>;
 
     [[nodiscard]] auto GetWriteSlot() -> std::expected<WriteSlot, PikaError>;

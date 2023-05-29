@@ -1,7 +1,7 @@
 #include "ring_buffer.hpp"
 
 auto RingBuffer::Initialize(uint8_t* ring_buffer, uint64_t element_size, uint64_t element_alignment,
-    uint64_t number_of_elements, bool is_intra_process) -> std::expected<void, PikaError>
+    uint64_t number_of_elements, bool is_inter_process) -> std::expected<void, PikaError>
 {
     if (ring_buffer == nullptr) {
         return std::unexpected(PikaError { .error_type = PikaErrorType::SharedRingBufferError,
@@ -18,16 +18,16 @@ auto RingBuffer::Initialize(uint8_t* ring_buffer, uint64_t element_size, uint64_
     m_element_size_in_bytes = element_size;
     m_queue_length = number_of_elements;
 
-    auto result = m_header.mutex.Initialize(is_intra_process);
+    auto result = m_header.mutex.Initialize(is_inter_process);
     if (not result.has_value()) {
         return std::unexpected(result.error());
     }
-    result = m_header.not_empty_condition_variable.Initialize(is_intra_process);
+    result = m_header.not_empty_condition_variable.Initialize(is_inter_process);
     if (not result.has_value()) {
         result.error().error_message.append("| not_empty_condition_variable");
         return std::unexpected(result.error());
     }
-    result = m_header.not_full_condition_variable.Initialize(is_intra_process);
+    result = m_header.not_full_condition_variable.Initialize(is_inter_process);
     if (not result.has_value()) {
         result.error().error_message.append("| not_full_condition_variable");
         return std::unexpected(result.error());

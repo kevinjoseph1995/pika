@@ -1,6 +1,6 @@
 #include "inter_process_channel.hpp"
 #include "error.hpp"
-#include "shared_buffer.hpp"
+#include "inter_process_shared_buffer.hpp"
 #include "utils.hpp"
 
 #include <memory>
@@ -26,9 +26,9 @@ static auto GetRingBufferSlotsOffset(uint64_t element_alignment)
 }
 
 static auto CreateSharedBuffer(pika::ChannelParameters const& channel_params, uint64_t element_size,
-    uint64_t element_alignment) -> std::expected<SharedBuffer, PikaError>
+    uint64_t element_alignment) -> std::expected<InterProcessSharedBuffer, PikaError>
 {
-    SharedBuffer buffer;
+    InterProcessSharedBuffer buffer;
     auto shared_buffer_result = buffer.Initialize(channel_params.channel_name,
         GetBufferSize(channel_params, element_size, element_alignment));
     if (!shared_buffer_result.has_value()) {

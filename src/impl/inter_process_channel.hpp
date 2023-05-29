@@ -5,8 +5,8 @@
 #include "channel_interface.hpp"
 
 #include "error.hpp"
+#include "inter_process_shared_buffer.hpp"
 #include "ring_buffer.hpp"
-#include "shared_buffer.hpp"
 
 struct SharedBufferHeader {
     std::atomic<uint64_t> m_producer_count = 0;
@@ -24,7 +24,7 @@ struct InterProcessConsumer : public pika::ConsumerImpl {
     ~InterProcessConsumer();
 
 private:
-    InterProcessConsumer(SharedBuffer buffer)
+    InterProcessConsumer(InterProcessSharedBuffer buffer)
         : m_buffer(std::move(buffer))
     {
     }
@@ -33,7 +33,7 @@ private:
         PIKA_ASSERT(m_buffer.GetSize() != 0 && m_buffer.GetBuffer() != nullptr);
         return *reinterpret_cast<SharedBufferHeader*>(m_buffer.GetBuffer());
     }
-    SharedBuffer m_buffer;
+    InterProcessSharedBuffer m_buffer;
 };
 
 struct InterProcessProducer : public pika::ProducerImpl {
@@ -46,7 +46,7 @@ struct InterProcessProducer : public pika::ProducerImpl {
     ~InterProcessProducer();
 
 private:
-    InterProcessProducer(SharedBuffer buffer)
+    InterProcessProducer(InterProcessSharedBuffer buffer)
         : m_buffer(std::move(buffer))
     {
     }
@@ -55,7 +55,7 @@ private:
         PIKA_ASSERT(m_buffer.GetSize() != 0 && m_buffer.GetBuffer() != nullptr);
         return *reinterpret_cast<SharedBufferHeader*>(m_buffer.GetBuffer());
     }
-    SharedBuffer m_buffer;
+    InterProcessSharedBuffer m_buffer;
 };
 
 #endif

@@ -32,7 +32,7 @@ struct Mutex {
     Mutex(Mutex const&) = delete;
     Mutex(Mutex&&) = delete;
 
-    [[nodiscard]] auto Initialize(bool intra_process = false) -> std::expected<void, PikaError>;
+    [[nodiscard]] auto Initialize(bool inter_process = false) -> std::expected<void, PikaError>;
     [[nodiscard]] auto Lock() -> std::expected<void, PikaError>;
     [[nodiscard]] auto Unlock() -> std::expected<void, PikaError>;
 
@@ -71,7 +71,7 @@ private:
 };
 
 struct ConditionVariable {
-    [[nodiscard]] auto Initialize(bool intra_process = false) -> std::expected<void, PikaError>;
+    [[nodiscard]] auto Initialize(bool inter_process = false) -> std::expected<void, PikaError>;
     template <typename Predicate> void Wait(LockedMutex& locked_mutex, Predicate stop_waiting)
     {
         while (stop_waiting() == false) {

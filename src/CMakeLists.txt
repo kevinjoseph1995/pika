@@ -3,7 +3,7 @@ set(CMAKE_CXX_STANDARD 23)
 
 option(PIKA_ENABLE_BACKTRACE "Enable backtrace" OFF)
 
-add_library(pika SHARED impl/shared_buffer.cpp
+add_library(pika SHARED impl/inter_process_shared_buffer.cpp
                         impl/error.cpp
                         impl/process_fork.cpp
                         impl/ring_buffer.cpp

@@ -72,7 +72,7 @@ auto Semaphore::Post() -> void
     }
 }
 
-auto Mutex::Initialize(bool intra_process) -> std::expected<void, PikaError>
+auto Mutex::Initialize(bool inter_process) -> std::expected<void, PikaError>
 {
     pthread_mutexattr_t mutex_attr {};
     auto return_code = pthread_mutexattr_init(&mutex_attr);
@@ -81,7 +81,7 @@ auto Mutex::Initialize(bool intra_process) -> std::expected<void, PikaError>
             .error_message
             = fmt::format("pthread_mutexattr_init failed with error code:{}", return_code) } };
     }
-    if (intra_process) {
+    if (inter_process) {
         return_code = pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED);
         if (return_code != 0) {
             return std::unexpected { PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
@@ -166,7 +166,7 @@ LockedMutex::~LockedMutex()
     }
 }
 
-auto ConditionVariable::Initialize(bool intra_process) -> std::expected<void, PikaError>
+auto ConditionVariable::Initialize(bool inter_process) -> std::expected<void, PikaError>
 {
     pthread_condattr_t cond_attr {};
     auto return_code = pthread_condattr_init(&cond_attr);
@@ -175,7 +175,7 @@ auto ConditionVariable::Initialize(bool intra_process) -> std::expected<void, Pi
             .error_message
             = fmt::format("pthread_condattr_init failed with error code:{}", return_code) } };
     }
-    if (intra_process) {
+    if (inter_process) {
         return_code = pthread_condattr_setpshared(&cond_attr, PTHREAD_PROCESS_SHARED);
         if (return_code != 0) {
             return std::unexpected { PikaError { .error_type = PikaErrorType::SyncPrimitiveError,

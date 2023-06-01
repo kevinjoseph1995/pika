@@ -10,7 +10,7 @@ auto const params = pika::ChannelParameters {
 };
 auto producer = pika::Channel::CreateProducer<int>(params);
 producer->Connect();
-producer->Send(static_cast<int>(44));
+producer->Send(44);
 ```
 
 ##### Consumer side on process 2

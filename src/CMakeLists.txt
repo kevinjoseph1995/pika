@@ -9,8 +9,6 @@ add_library(pika SHARED impl/backing_storage.cpp
                         impl/ring_buffer.cpp
                         impl/synchronization_primitives.cpp
                         impl/channel_interface.cpp
-                        impl/inter_process_channel.cpp
-                        impl/inter_thread_channel.cpp
 )
 target_include_directories(pika PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/impl)
 target_include_directories(pika PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

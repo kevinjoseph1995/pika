@@ -9,46 +9,17 @@
 
 namespace pika {
 
-/*
-Endpoint state transitions
-
-┌────────────────────┐
-│    DISCONNECTED    │◄───────────────┐
-│                    │                │
-└─────────┬──────────┘                │
-          │                           │
-          │                           │
-          │                           │
-          │                           │
-          │                           │
-          ▼                           │
-┌────────────────────┐                │
-│      CONNECTED     ├────────────────┘
-│                    │
-└────────────────────┘
-*/
-
-enum class EndpointState {
-    DISCONNECTED,
-    CONNECTED,
-};
-
-struct Endpoint {
+struct ProducerImpl {
+    virtual ~ProducerImpl() = default;
     virtual auto Connect() -> std::expected<void, PikaError> = 0;
-    virtual ~Endpoint() = default;
-    auto GetState() const -> EndpointState { return m_state; }
-
-protected:
-    EndpointState m_state = EndpointState::DISCONNECTED;
-};
-
-struct ProducerImpl : public Endpoint {
     virtual auto Send(uint8_t const* const source_buffer, uint64_t size)
         -> std::expected<void, PikaError>
         = 0;
 };
 
-struct ConsumerImpl : public Endpoint {
+struct ConsumerImpl {
+    virtual ~ConsumerImpl() = default;
+    virtual auto Connect() -> std::expected<void, PikaError> = 0;
     virtual auto Receive(uint8_t* const destination_buffer, uint64_t destination_buffer_size)
         -> std::expected<void, PikaError>
         = 0;

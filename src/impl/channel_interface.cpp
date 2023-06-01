@@ -1,8 +1,8 @@
 #include "channel_interface.hpp"
 
+#include "backing_storage.hpp"
+#include "channel_internal.hpp"
 #include "error.hpp"
-#include "inter_process_channel.hpp"
-#include "inter_thread_channel.hpp"
 
 namespace pika {
 auto Channel::__CreateConsumerImpl(ChannelParameters const& channel_params, uint64_t element_size,
@@ -10,9 +10,11 @@ auto Channel::__CreateConsumerImpl(ChannelParameters const& channel_params, uint
 {
     switch (channel_params.channel_type) {
     case ChannelType::InterProcess:
-        return InterProcessConsumer::Create(channel_params, element_size, element_alignment);
+        return ConsumerInternal<InterProcessSharedBuffer>::Create(
+            channel_params, element_size, element_alignment);
     case ChannelType::InterThread:
-        return InterThreadConsumer::Create(channel_params, element_size, element_alignment);
+        return ConsumerInternal<InterThreadSharedBuffer>::Create(
+            channel_params, element_size, element_alignment);
     }
 }
 
@@ -21,9 +23,11 @@ auto Channel::__CreateProducerImpl(ChannelParameters const& channel_params, uint
 {
     switch (channel_params.channel_type) {
     case ChannelType::InterProcess:
-        return InterProcessProducer::Create(channel_params, element_size, element_alignment);
+        return ProducerInternal<InterProcessSharedBuffer>::Create(
+            channel_params, element_size, element_alignment);
     case ChannelType::InterThread:
-        return InterThreadProducer::Create(channel_params, element_size, element_alignment);
+        return ProducerInternal<InterThreadSharedBuffer>::Create(
+            channel_params, element_size, element_alignment);
     }
 }
 } // namespace pika

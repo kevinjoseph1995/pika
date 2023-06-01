@@ -43,6 +43,7 @@ static auto PrepareHeader(pika::ChannelParameters const& channel_params, uint64_
     auto const semaphore_name = std::string(channel_params.channel_name)
         + (channel_params.channel_type == pika::ChannelType::InterThread ? "_inter_thread"
                                                                          : "_inter_process");
+    // Acquire exclusive access of the header(This will work across processes as well)
     auto result = Semaphore::New(semaphore_name, 1);
     if (!result.has_value()) {
         return std::unexpected { result.error() };

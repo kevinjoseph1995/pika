@@ -1,4 +1,4 @@
-# Pika: A basic message massing library
+# Pika: A basic message passing library
 
 An experimental self learning project.
 

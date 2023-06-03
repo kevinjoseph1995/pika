@@ -54,7 +54,6 @@ TEST(InterThreadChannel, TxRx)
 
         for (auto tx : tx_data) {
             auto send_result = producer->Send(static_cast<int>(tx));
-            std::this_thread::sleep_for(1ms);
             if (not send_result.has_value()) {
                 fmt::println(stderr, "producer->Send Error: {}", send_result.error().error_message);
                 return;
@@ -76,6 +75,58 @@ TEST(InterThreadChannel, TxRx)
         ASSERT_TRUE(recv_result.has_value()) << recv_result.error().error_message;
         ASSERT_TRUE(recv_result.has_value()) << recv_result.error().error_message;
         ASSERT_TRUE(recv_packet == tx_data[index++]);
+        if (index == tx_data.size() - 1) {
+            break;
+        }
+        fmt::println("Rx cycle took:{} microseconds", watch.ElapsedDurationUs());
+    }
+
+    thread.join();
+}
+
+TEST(InterThreadChannel, TxRxLockFree)
+{
+    auto const params = pika::ChannelParameters { .channel_name = "/test",
+        .queue_size = 1,
+        .channel_type = pika::ChannelType::InterThread,
+        .single_producer_single_consumer_mode = true };
+
+    auto const tx_data = GetRandomIntVector(100);
+    auto thread = std::thread([&]() {
+        auto producer = pika::Channel::CreateProducer<int>(params);
+        if (not producer.has_value()) {
+            fmt::println(stderr, "{}", producer.error().error_message);
+            return;
+        }
+        auto connect_result = producer->Connect();
+        if (not connect_result.has_value()) {
+            fmt::println(stderr, "{}", connect_result.error().error_message);
+            return;
+        }
+
+        for (auto tx : tx_data) {
+            auto send_result = producer->Send(static_cast<int>(tx));
+            if (not send_result.has_value()) {
+                fmt::println(stderr, "producer->Send Error: {}", send_result.error().error_message);
+                return;
+            }
+        }
+        return;
+    });
+
+    // Setup consumer
+    auto consumer = pika::Channel::CreateConsumer<int>(params);
+    auto connect_result = consumer->Connect();
+    ASSERT_TRUE(connect_result.has_value()) << connect_result.error().error_message;
+
+    size_t index = 0;
+    while (true) {
+        StopWatch watch;
+        int recv_packet {};
+        auto recv_result = consumer->Receive(recv_packet);
+        ASSERT_TRUE(recv_result.has_value()) << recv_result.error().error_message;
+        ASSERT_TRUE(recv_result.has_value()) << recv_result.error().error_message;
+        ASSERT_TRUE(recv_packet == tx_data[index++]) << "recv_packet=" << recv_packet;
         if (index == tx_data.size() - 1) {
             break;
         }

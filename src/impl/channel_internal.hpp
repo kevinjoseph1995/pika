@@ -37,31 +37,6 @@
 
 using namespace std::chrono_literals;
 
-template <RingBufferType RingBuffer> struct SharedBufferHeader {
-    std::atomic<uint64_t> m_producer_count = 0;
-    std::atomic<uint64_t> m_consumer_count = 0;
-    RingBuffer ring_buffer;
-};
-
-template <RingBufferType RingBuffer>
-[[nodiscard]] static constexpr auto GetRingBufferSlotsOffset(uint64_t element_alignment)
-{
-    if (element_alignment < sizeof(SharedBufferHeader<RingBuffer>)) {
-        return ((sizeof(SharedBufferHeader<RingBuffer>) / element_alignment) + 1)
-            * element_alignment;
-    } else {
-        return element_alignment;
-    }
-}
-
-template <RingBufferType RingBuffer>
-[[nodiscard]] static constexpr auto GetBufferSize(pika::ChannelParameters const& channel_parameters,
-    uint64_t element_size, uint64_t element_alignment) -> uint64_t
-{
-    return GetRingBufferSlotsOffset<RingBuffer>(element_alignment)
-        + (channel_parameters.queue_size * element_size);
-}
-
 template <typename BackingStorageType, RingBufferType RingBuffer>
 static auto PrepareHeader(pika::ChannelParameters const& channel_params, uint64_t element_size,
     uint64_t element_alignment, BackingStorageType& storage) -> std::expected<void, PikaError>
@@ -97,24 +72,31 @@ static auto PrepareHeader(pika::ChannelParameters const& channel_params, uint64_
         // This segment was previously initialized by another producer / consumer
         // Validate the header with the current parameters
         if (channel_params.queue_size != header->ring_buffer.GetQueueLength()) {
-            return std::unexpected { PikaError { .error_type = PikaErrorType::SharedRingBufferError,
+            return std::unexpected { PikaError { .error_type = PikaErrorType::RingBufferError,
                 .error_message = fmt::format("Existing ring buffer queue length: {}; Requested "
                                              "ring buffer queue length: {}",
                     header->ring_buffer.GetQueueLength(), channel_params.queue_size) } };
         }
         if (element_size != header->ring_buffer.GetElementSizeInBytes()) {
-            return std::unexpected { PikaError { .error_type = PikaErrorType::SharedRingBufferError,
+            return std::unexpected { PikaError { .error_type = PikaErrorType::RingBufferError,
                 .error_message
                 = fmt::format("Existing ring buffer element size(in bytes): {}; Requested "
                               "element size(in bytes): {}",
                     header->ring_buffer.GetElementSizeInBytes(), element_size) } };
         }
         if (element_alignment != header->ring_buffer.GetElementAlignment()) {
-            return std::unexpected { PikaError { .error_type = PikaErrorType::SharedRingBufferError,
+            return std::unexpected { PikaError { .error_type = PikaErrorType::RingBufferError,
                 .error_message
                 = fmt::format("Existing ring buffer element alignment: {}; Requested "
                               "element alignment: {}",
                     header->ring_buffer.GetElementAlignment(), element_alignment) } };
+        }
+        if (channel_params.single_producer_single_consumer_mode
+            && (header->m_consumer_count.load() > 1 || header->m_producer_count.load())) {
+            return std::unexpected { PikaError { .error_type = PikaErrorType::RingBufferError,
+                .error_message
+                = "Can only register one producer and one consumer when using "
+                  "ChannelParameters::single_producer_single_consumer_mode is set to true" } };
         }
     }
     return {};
@@ -127,14 +109,14 @@ template <typename BackingStorageType, RingBufferType RingBuffer>
 {
     BackingStorageType backing_storage;
     auto shared_buffer_result = backing_storage.Initialize(channel_params.channel_name,
-        GetBufferSize<RingBuffer>(channel_params, element_size, element_alignment));
+        GetBufferSize<RingBuffer>(channel_params.queue_size, element_size, element_alignment));
     if (!shared_buffer_result.has_value()) {
         return std::unexpected { shared_buffer_result.error() };
     }
     if (reinterpret_cast<std::uintptr_t>(backing_storage.GetBuffer())
             % alignof(SharedBufferHeader<RingBuffer>)
         != 0) {
-        return std::unexpected(PikaError { .error_type = PikaErrorType::SharedRingBufferError,
+        return std::unexpected(PikaError { .error_type = PikaErrorType::RingBufferError,
             .error_message = "CreateSharedBuffer::Create buffer is not aligned" });
     }
     auto result = PrepareHeader<BackingStorageType, RingBuffer>(

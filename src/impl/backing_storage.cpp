@@ -146,25 +146,46 @@ void InterProcessSharedBuffer::operator=(InterProcessSharedBuffer&& other)
     other.m_size = 0;
 }
 
+struct __InternalBlock {
+    struct BufferPair {
+        std::vector<uint8_t> buffer;
+        uint64_t m_reference_count = 0;
+    };
+    std::mutex map_mutex;
+    std::unordered_map<std::string, BufferPair> buffer_map;
+};
+
+static auto internal_map = __InternalBlock {};
+
 auto InterThreadSharedBuffer::Initialize(std::string const& identifier, uint64_t size)
     -> std::expected<void, PikaError>
 {
-    struct __InternalBlock {
-        std::mutex map_mutex;
-        std::unordered_map<std::string, std::vector<uint8_t>> buffer_map;
-    };
-
-    static auto internal_map = __InternalBlock {};
 
     std::scoped_lock lk { internal_map.map_mutex };
     if (internal_map.buffer_map.count(identifier) != 0) {
-        m_data = &internal_map.buffer_map.at(identifier);
+        m_data = &(internal_map.buffer_map.at(identifier).buffer);
         m_identifier = identifier;
     } else {
-        auto [pair, buffer] = internal_map.buffer_map.insert(
+        auto [pair, _] = internal_map.buffer_map.insert(
             std::make_pair(identifier, std::vector<uint8_t>(static_cast<unsigned long>(size), 0)));
+        m_data = &pair->second.buffer;
         m_identifier = pair->first;
-        m_data = &pair->second;
     }
+    ++internal_map.buffer_map.at(identifier).m_reference_count;
     return {};
+}
+
+InterThreadSharedBuffer::~InterThreadSharedBuffer()
+{
+    if (m_data == nullptr) {
+        return;
+    }
+    std::scoped_lock lk { internal_map.map_mutex };
+    if (internal_map.buffer_map.count(m_identifier) != 0) {
+        if (internal_map.buffer_map.at(m_identifier).m_reference_count == 1) {
+            internal_map.buffer_map.erase(m_identifier);
+        } else {
+            --internal_map.buffer_map.at(m_identifier).m_reference_count;
+        }
+    }
 }

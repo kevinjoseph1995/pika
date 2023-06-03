@@ -73,12 +73,19 @@ public:
         PIKA_ASSERT(m_data != nullptr);
         return m_data->size();
     }
+    ~InterThreadSharedBuffer();
+    InterThreadSharedBuffer() = default;
+    InterThreadSharedBuffer(InterThreadSharedBuffer const&) = delete;
+    InterThreadSharedBuffer(InterThreadSharedBuffer&& other)
+    {
+        this->m_data = other.m_data;
+        this->m_identifier = std::move(other.m_identifier);
+        other.m_identifier.clear();
+    }
 
 private:
     std::string m_identifier;
-    std::vector<uint8_t>* m_data
-        = nullptr; // TODO: Maybe have a ref-counted heap buffer. For now this pointer points to
-                   // some vector with static lifetime.
+    std::vector<uint8_t>* m_data = nullptr;
 };
 
 #endif

@@ -54,7 +54,6 @@ TEST(InterProcessChannel, TxRx)
         }
         for (auto tx : tx_data) {
             auto send_result = producer->Send(static_cast<int>(tx));
-            std::this_thread::sleep_for(1ms);
             if (not send_result.has_value()) {
                 fmt::println(stderr, "producer->Send Error: {}", send_result.error().error_message);
                 return ChildProcessState::FAIL;

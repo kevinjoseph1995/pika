@@ -21,19 +21,25 @@
 // SOFTWARE.
 
 #include "ring_buffer.hpp"
+#include "error.hpp"
+#include <atomic>
 #include <cstring>
+#include <expected>
+#include <thread>
+
+using namespace std::chrono_literals;
 
 auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_object,
     uint8_t* ring_buffer, uint64_t element_size, uint64_t element_alignment,
     uint64_t number_of_elements, bool is_inter_process) -> std::expected<void, PikaError>
 {
     if (ring_buffer == nullptr) {
-        return std::unexpected(PikaError { .error_type = PikaErrorType::SharedRingBufferError,
+        return std::unexpected(PikaError { .error_type = PikaErrorType::RingBufferError,
             .error_message = "SharedRingBuffer::Initialize buffer==nullptr" });
     }
 
     if (reinterpret_cast<std::uintptr_t>(ring_buffer) % element_alignment != 0) {
-        return std::unexpected(PikaError { .error_type = PikaErrorType::SharedRingBufferError,
+        return std::unexpected(PikaError { .error_type = PikaErrorType::RingBufferError,
             .error_message = "SharedRingBuffer::Initialize buffer is not aligned" });
     }
 
@@ -94,5 +100,41 @@ auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_ob
         --count;
     }
     not_full_condition_variable.Signal();
+    return {};
+}
+
+auto RingBufferLockFree::Initialize(uint8_t* buffer, uint64_t element_size,
+    uint64_t element_alignment, uint64_t number_of_elements) -> std::expected<void, PikaError>
+{
+    m_ring_buffer = buffer;
+    m_element_size_in_bytes = element_size;
+    m_element_alignment = element_alignment;
+    m_queue_length = number_of_elements;
+    m_internal_queue_length = m_queue_length + 1;
+    m_head.store(0);
+    m_tail.store(0);
+    return {};
+}
+
+auto RingBufferLockFree::Put(uint8_t const* const element) -> std::expected<void, PikaError>
+{
+    auto const current_tail = m_tail.load(std::memory_order_relaxed);
+    auto const next_tail = incrementByOne(current_tail);
+    while (next_tail == m_head.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
+    std::memcpy(getBufferSlot_(current_tail), element, m_element_size_in_bytes);
+    m_tail.store(next_tail, std::memory_order_release);
+    return {};
+}
+
+auto RingBufferLockFree::Get(uint8_t* const element) -> std::expected<void, PikaError>
+{
+    auto const current_head = m_head.load(std::memory_order_relaxed);
+    while (current_head == m_tail.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
+    std::memcpy(element, getBufferSlot_(current_head), m_element_size_in_bytes);
+    m_head.store(incrementByOne(current_head), std::memory_order_release);
     return {};
 }

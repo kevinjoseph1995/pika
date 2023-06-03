@@ -54,7 +54,7 @@ struct ChildProcessHandle {
         } else if (status == -1) {
             auto error_message = strerror(errno);
             errno = 0;
-            return std::unexpected(PikaError { .error_type = PikaErrorType::SharedBufferError,
+            return std::unexpected(PikaError { .error_type = PikaErrorType::Unknown,
                 .error_message = fmt::format("fork failed with error:{}", error_message) });
         }
         ChildProcessHandle child_process_handle;

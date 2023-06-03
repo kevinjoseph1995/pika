@@ -179,15 +179,13 @@ struct ConsumerInternal : public pika::ConsumerImpl {
         return {};
     }
 
-    auto Receive(uint8_t* const destination_buffer, uint64_t destination_buffer_size)
-        -> std::expected<void, PikaError> override
+    auto Receive(uint8_t* const destination_buffer) -> std::expected<void, PikaError> override
     {
-        auto read_slot
-            = GetHeader<BackingStorageType, RingBuffer>(m_storage).ring_buffer.GetReadSlot();
-        if (not read_slot.has_value()) {
-            return std::unexpected { read_slot.error() };
+        auto result = GetHeader<BackingStorageType, RingBuffer>(m_storage).ring_buffer.Get(
+            destination_buffer);
+        if (not result.has_value()) {
+            return std::unexpected { result.error() };
         }
-        std::memcpy(destination_buffer, read_slot->GetElement(), destination_buffer_size);
         return {};
     }
     virtual ~ConsumerInternal()
@@ -231,15 +229,13 @@ struct ProducerInternal : public pika::ProducerImpl {
         return {};
     }
 
-    auto Send(uint8_t const* const source_buffer, uint64_t source_buffer_size)
-        -> std::expected<void, PikaError> override
+    auto Send(uint8_t const* const source_buffer) -> std::expected<void, PikaError> override
     {
-        auto write_slot
-            = GetHeader<BackingStorageType, RingBuffer>(m_storage).ring_buffer.GetWriteSlot();
-        if (not write_slot.has_value()) {
-            return std::unexpected { write_slot.error() };
+        auto result
+            = GetHeader<BackingStorageType, RingBuffer>(m_storage).ring_buffer.Put(source_buffer);
+        if (not result.has_value()) {
+            return std::unexpected { result.error() };
         }
-        std::memcpy(write_slot->GetElement(), source_buffer, source_buffer_size);
         return {};
     }
 

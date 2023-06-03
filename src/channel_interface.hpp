@@ -34,23 +34,19 @@ namespace pika {
 struct ProducerImpl {
     virtual ~ProducerImpl() = default;
     virtual auto Connect() -> std::expected<void, PikaError> = 0;
-    virtual auto Send(uint8_t const* const source_buffer, uint64_t size)
-        -> std::expected<void, PikaError>
-        = 0;
+    virtual auto Send(uint8_t const* const source_buffer) -> std::expected<void, PikaError> = 0;
 };
 
 struct ConsumerImpl {
     virtual ~ConsumerImpl() = default;
     virtual auto Connect() -> std::expected<void, PikaError> = 0;
-    virtual auto Receive(uint8_t* const destination_buffer, uint64_t destination_buffer_size)
-        -> std::expected<void, PikaError>
-        = 0;
+    virtual auto Receive(uint8_t* const destination_buffer) -> std::expected<void, PikaError> = 0;
 };
 
 template <typename DataT> struct Producer {
     auto Send(DataT const& packet) -> std::expected<void, PikaError>
     {
-        return m_impl->Send(reinterpret_cast<uint8_t const*>(&packet), sizeof(packet));
+        return m_impl->Send(reinterpret_cast<uint8_t const*>(&packet));
     }
 
     auto Connect() -> std::expected<void, PikaError> { return m_impl->Connect(); }
@@ -67,7 +63,7 @@ private:
 template <typename DataT> struct Consumer {
     auto Receive(DataT& packet) -> std::expected<void, PikaError>
     {
-        return m_impl->Receive(reinterpret_cast<uint8_t*>(&packet), sizeof(packet));
+        return m_impl->Receive(reinterpret_cast<uint8_t*>(&packet));
     }
 
     auto Connect() -> std::expected<void, PikaError> { return m_impl->Connect(); }

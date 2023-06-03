@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #include "ring_buffer.hpp"
+#include <cstring>
 
 auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_object,
     uint8_t* ring_buffer, uint64_t element_size, uint64_t element_alignment,
@@ -41,16 +42,16 @@ auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_ob
     ring_buffer_object.m_element_size_in_bytes = element_size;
     ring_buffer_object.m_queue_length = number_of_elements;
 
-    auto result = ring_buffer_object.m_header.mutex.Initialize(is_inter_process);
+    auto result = ring_buffer_object.mutex.Initialize(is_inter_process);
     if (not result.has_value()) {
         return std::unexpected(result.error());
     }
-    result = ring_buffer_object.m_header.not_empty_condition_variable.Initialize(is_inter_process);
+    result = ring_buffer_object.not_empty_condition_variable.Initialize(is_inter_process);
     if (not result.has_value()) {
         result.error().error_message.append("| not_empty_condition_variable");
         return std::unexpected(result.error());
     }
-    result = ring_buffer_object.m_header.not_full_condition_variable.Initialize(is_inter_process);
+    result = ring_buffer_object.not_full_condition_variable.Initialize(is_inter_process);
     if (not result.has_value()) {
         result.error().error_message.append("| not_full_condition_variable");
         return std::unexpected(result.error());
@@ -59,86 +60,35 @@ auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_ob
     return {};
 }
 
-[[nodiscard]] auto RingBufferLockProtected::GetWriteSlot() -> std::expected<WriteSlot, PikaError>
+[[nodiscard]] auto RingBufferLockProtected::Put(uint8_t const* const element)
+    -> std::expected<void, PikaError>
 {
-    auto locked_mutex_result = LockedMutex::New(&m_header.mutex);
+    auto locked_mutex_result = LockedMutex::New(&mutex);
     if (not locked_mutex_result.has_value()) {
         return std::unexpected { locked_mutex_result.error() };
     }
 
-    m_header.not_full_condition_variable.Wait(
-        locked_mutex_result.value(), [this]() -> bool { return m_header.count < m_queue_length; });
-
-    auto write_slot = WriteSlot { std::move((locked_mutex_result.value())),
-        &(m_header.not_empty_condition_variable), getBufferSlot(m_header.write_index) };
-    m_header.write_index = (m_header.write_index + 1) % m_queue_length;
-    ++m_header.count;
-    return write_slot;
+    not_full_condition_variable.Wait(
+        locked_mutex_result.value(), [this]() -> bool { return count < m_queue_length; });
+    std::memcpy(getBufferSlot(write_index), element, m_element_size_in_bytes);
+    write_index = (write_index + 1) % m_queue_length;
+    ++count;
+    not_empty_condition_variable.Signal();
+    return {};
 }
 
-[[nodiscard]] auto RingBufferLockProtected::GetReadSlot() -> std::expected<ReadSlot, PikaError>
+[[nodiscard]] auto RingBufferLockProtected::Get(uint8_t* const element)
+    -> std::expected<void, PikaError>
 {
-    auto locked_mutex_result = LockedMutex::New(&m_header.mutex);
+    auto locked_mutex_result = LockedMutex::New(&mutex);
     if (not locked_mutex_result.has_value()) {
         return std::unexpected { locked_mutex_result.error() };
     }
-
-    m_header.not_empty_condition_variable.Wait(
-        locked_mutex_result.value(), [&]() -> bool { return m_header.count != 0; });
-
-    auto read_slot = ReadSlot { std::move((locked_mutex_result.value())),
-        &(m_header.not_full_condition_variable), getBufferSlot(m_header.read_index) };
-    m_header.read_index = (m_header.read_index + 1) % m_queue_length;
-    --m_header.count;
-    return read_slot;
-}
-
-WriteSlot ::~WriteSlot()
-{
-    if (m_cv != nullptr) {
-        m_locked_mutex.~LockedMutex();
-        m_cv->Signal();
-        m_cv = nullptr;
-    }
-}
-
-void WriteSlot::operator=(WriteSlot&& other)
-{
-    m_element = other.m_element;
-    m_locked_mutex = std::move(other.m_locked_mutex);
-    m_cv = other.m_cv;
-    other.m_cv = nullptr;
-}
-
-WriteSlot::WriteSlot(WriteSlot&& other)
-    : m_element(other.m_element)
-    , m_locked_mutex(std::move(other.m_locked_mutex))
-    , m_cv(other.m_cv)
-{
-    other.m_cv = nullptr;
-    other.m_element = nullptr;
-}
-
-ReadSlot::~ReadSlot()
-{
-    if (m_cv != nullptr) {
-        m_locked_mutex.~LockedMutex();
-        m_cv->Signal();
-        m_cv = nullptr;
-    }
-}
-ReadSlot::ReadSlot(ReadSlot&& other)
-    : m_element(other.m_element)
-    , m_locked_mutex(std::move(other.m_locked_mutex))
-    , m_cv(other.m_cv)
-{
-    other.m_cv = nullptr;
-    other.m_element = nullptr;
-}
-void ReadSlot::operator=(ReadSlot&& other)
-{
-    m_element = other.m_element;
-    m_locked_mutex = std::move(other.m_locked_mutex);
-    m_cv = other.m_cv;
-    other.m_cv = nullptr;
+    not_empty_condition_variable.Wait(
+        locked_mutex_result.value(), [&]() -> bool { return count != 0; });
+    std::memcpy(element, getBufferSlot(read_index), m_element_size_in_bytes);
+    read_index = (read_index + 1) % m_queue_length;
+    --count;
+    not_full_condition_variable.Signal();
+    return {};
 }

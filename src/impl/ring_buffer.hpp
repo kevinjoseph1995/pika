@@ -26,59 +26,21 @@
 #include "error.hpp"
 #include "synchronization_primitives.hpp"
 // System includes
-#include <__concepts/derived_from.h>
 #include <atomic>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <type_traits>
 
-template <typename ElementType> struct SharedRingBuffer;
-
-struct WriteSlot {
-    auto GetElement() const -> uint8_t* { return m_element; }
-    ~WriteSlot();
-    WriteSlot(WriteSlot&& other);
-    void operator=(WriteSlot&& other);
-
-private:
-    WriteSlot(LockedMutex locked_mutex, ConditionVariable* cv, uint8_t* element)
-        : m_element(element)
-        , m_locked_mutex(std::move(locked_mutex))
-        , m_cv(cv)
-    {
-    }
-    friend struct RingBufferLockProtected;
-    uint8_t* m_element = nullptr;
-    LockedMutex m_locked_mutex;
-    ConditionVariable* m_cv = nullptr;
-};
-
-struct ReadSlot {
-    auto GetElement() const -> uint8_t const* { return m_element; }
-    ~ReadSlot();
-    ReadSlot(ReadSlot&& other);
-    void operator=(ReadSlot&& other);
-
-protected:
-    ReadSlot(LockedMutex locked_mutex, ConditionVariable* cv, uint8_t const* element)
-        : m_element(element)
-        , m_locked_mutex(std::move(locked_mutex))
-        , m_cv(cv)
-    {
-    }
-    friend struct RingBufferLockProtected;
-    uint8_t const* m_element = nullptr;
-    LockedMutex m_locked_mutex;
-    ConditionVariable* m_cv = nullptr;
-};
-
 struct RingBufferBase {
+    virtual ~RingBufferBase() = default;
     [[nodiscard]] virtual auto Initialize(uint8_t* buffer, uint64_t element_size,
         uint64_t element_alignment, uint64_t number_of_elements) -> std::expected<void, PikaError>
         = 0;
-    [[nodiscard]] virtual auto GetWriteSlot() -> std::expected<WriteSlot, PikaError> = 0;
-    [[nodiscard]] virtual auto GetReadSlot() -> std::expected<ReadSlot, PikaError> = 0;
+    [[nodiscard]] virtual auto Put(uint8_t const* const element) -> std::expected<void, PikaError>
+        = 0;
+    [[nodiscard]] virtual auto Get(uint8_t* const element) -> std::expected<void, PikaError> = 0;
     [[nodiscard]] auto GetElementAlignment() const -> uint64_t { return m_element_alignment; }
     [[nodiscard]] auto GetElementSizeInBytes() const -> uint64_t { return m_element_size_in_bytes; }
     [[nodiscard]] auto GetElementAlignment() -> uint64_t { return m_element_alignment; }
@@ -100,8 +62,8 @@ concept RingBufferType = std::derived_from<T, RingBufferBase>;
 
 struct RingBufferLockProtected : public RingBufferBase {
 public:
-    [[nodiscard]] auto GetWriteSlot() -> std::expected<WriteSlot, PikaError> override;
-    [[nodiscard]] auto GetReadSlot() -> std::expected<ReadSlot, PikaError> override;
+    [[nodiscard]] auto Put(uint8_t const* const element) -> std::expected<void, PikaError> override;
+    [[nodiscard]] auto Get(uint8_t* const element) -> std::expected<void, PikaError> override;
 
 protected:
     [[nodiscard]] static auto initialize(RingBufferLockProtected& ring_buffer_object,
@@ -109,14 +71,12 @@ protected:
         uint64_t number_of_elements, bool is_inter_process) -> std::expected<void, PikaError>;
 
 private:
-    struct Header {
-        Mutex mutex {}; // Coarse grained lock protecting all accesses to the buffer
-        ConditionVariable not_empty_condition_variable {};
-        ConditionVariable not_full_condition_variable {};
-        uint64_t write_index = 0;
-        uint64_t read_index = 0;
-        uint64_t count = 0;
-    } m_header {};
+    Mutex mutex {}; // Coarse grained lock protecting all accesses to the buffer
+    ConditionVariable not_empty_condition_variable {};
+    ConditionVariable not_full_condition_variable {};
+    uint64_t write_index = 0;
+    uint64_t read_index = 0;
+    uint64_t count = 0;
 };
 
 struct RingBufferInterProcessLockProtected : public RingBufferLockProtected {

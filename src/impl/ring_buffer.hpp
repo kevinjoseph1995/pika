@@ -127,6 +127,7 @@ private:
 template <RingBufferType RingBuffer> struct SharedBufferHeader {
     std::atomic<uint64_t> m_producer_count = 0;
     std::atomic<uint64_t> m_consumer_count = 0;
+    bool single_producer_single_consumer_mode = false;
     RingBuffer ring_buffer;
 };
 

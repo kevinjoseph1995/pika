@@ -26,6 +26,7 @@
 
 #include "backing_storage.hpp"
 #include "channel_interface.hpp"
+#include "fmt/core.h"
 #include "ring_buffer.hpp"
 #include "utils.hpp"
 
@@ -62,6 +63,8 @@ static auto PrepareHeader(pika::ChannelParameters const& channel_params, uint64_
     if (header->m_consumer_count.load() == 0 && header->m_producer_count.load() == 0) {
         // This segment was not previously initialized by another producer/consumer
         header = new (header) SharedBufferHeader<RingBuffer> {};
+        header->single_producer_single_consumer_mode
+            = channel_params.single_producer_single_consumer_mode;
         auto result = header->ring_buffer.Initialize(
             storage.GetBuffer() + GetRingBufferSlotsOffset<RingBuffer>(element_alignment),
             element_size, element_alignment, channel_params.queue_size);
@@ -97,6 +100,16 @@ static auto PrepareHeader(pika::ChannelParameters const& channel_params, uint64_
                 .error_message
                 = "Can only register one producer and one consumer when using "
                   "ChannelParameters::single_producer_single_consumer_mode is set to true" } };
+        }
+        if (channel_params.single_producer_single_consumer_mode
+            != header->single_producer_single_consumer_mode) {
+            return std::unexpected { PikaError { .error_type = PikaErrorType::RingBufferError,
+                .error_message = fmt::format(
+                    "Provided channel parameters has "
+                    "single_producer_single_consumer_mode set to {}. However channel was "
+                    "already established with single_producer_single_consumer_mode set to {}",
+                    channel_params.single_producer_single_consumer_mode,
+                    header->single_producer_single_consumer_mode) } };
         }
     }
     return {};

@@ -63,16 +63,18 @@ auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_ob
 [[nodiscard]] auto RingBufferLockProtected::Put(uint8_t const* const element)
     -> std::expected<void, PikaError>
 {
-    auto locked_mutex_result = LockedMutex::New(&mutex);
-    if (not locked_mutex_result.has_value()) {
-        return std::unexpected { locked_mutex_result.error() };
-    }
+    {
+        auto locked_mutex_result = LockedMutex::New(&mutex);
+        if (not locked_mutex_result.has_value()) {
+            return std::unexpected { locked_mutex_result.error() };
+        }
 
-    not_full_condition_variable.Wait(
-        locked_mutex_result.value(), [this]() -> bool { return count < m_queue_length; });
-    std::memcpy(getBufferSlot(write_index), element, m_element_size_in_bytes);
-    write_index = (write_index + 1) % m_queue_length;
-    ++count;
+        not_full_condition_variable.Wait(
+            locked_mutex_result.value(), [this]() -> bool { return count < m_queue_length; });
+        std::memcpy(getBufferSlot(write_index), element, m_element_size_in_bytes);
+        write_index = (write_index + 1) % m_queue_length;
+        ++count;
+    }
     not_empty_condition_variable.Signal();
     return {};
 }
@@ -80,15 +82,17 @@ auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_ob
 [[nodiscard]] auto RingBufferLockProtected::Get(uint8_t* const element)
     -> std::expected<void, PikaError>
 {
-    auto locked_mutex_result = LockedMutex::New(&mutex);
-    if (not locked_mutex_result.has_value()) {
-        return std::unexpected { locked_mutex_result.error() };
+    {
+        auto locked_mutex_result = LockedMutex::New(&mutex);
+        if (not locked_mutex_result.has_value()) {
+            return std::unexpected { locked_mutex_result.error() };
+        }
+        not_empty_condition_variable.Wait(
+            locked_mutex_result.value(), [&]() -> bool { return count != 0; });
+        std::memcpy(element, getBufferSlot(read_index), m_element_size_in_bytes);
+        read_index = (read_index + 1) % m_queue_length;
+        --count;
     }
-    not_empty_condition_variable.Wait(
-        locked_mutex_result.value(), [&]() -> bool { return count != 0; });
-    std::memcpy(element, getBufferSlot(read_index), m_element_size_in_bytes);
-    read_index = (read_index + 1) % m_queue_length;
-    --count;
     not_full_condition_variable.Signal();
     return {};
 }

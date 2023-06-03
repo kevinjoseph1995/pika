@@ -2,7 +2,7 @@
 
 An experimental self learning project.
 
-Usage:
+## Usage:
 ### Inter-process
 ##### Producer side on process 1
 ```cpp
@@ -26,7 +26,7 @@ consumer->Receive(recv_packet);
 assert(recv_packet == 44);
 ```
 
-### Single producer single consumer lockfree inter thread
+### Single producer single consumer lockfree inter thread channel implementation
 ##### Producer on Thread 1
 ```cpp
 auto const params = pika::ChannelParameters { .channel_name = "/test",

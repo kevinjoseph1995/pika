@@ -85,8 +85,9 @@ enum class ChannelType { InterProcess, InterThread };
 
 struct ChannelParameters {
     std::string channel_name;
-    uint64_t queue_size;
+    uint64_t queue_size {};
     ChannelType channel_type;
+    bool single_producer_single_consumer_mode = false;
 };
 
 struct Channel {

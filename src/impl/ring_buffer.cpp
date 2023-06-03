@@ -22,7 +22,8 @@
 
 #include "ring_buffer.hpp"
 
-auto RingBuffer::Initialize(uint8_t* ring_buffer, uint64_t element_size, uint64_t element_alignment,
+auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_object,
+    uint8_t* ring_buffer, uint64_t element_size, uint64_t element_alignment,
     uint64_t number_of_elements, bool is_inter_process) -> std::expected<void, PikaError>
 {
     if (ring_buffer == nullptr) {
@@ -35,21 +36,21 @@ auto RingBuffer::Initialize(uint8_t* ring_buffer, uint64_t element_size, uint64_
             .error_message = "SharedRingBuffer::Initialize buffer is not aligned" });
     }
 
-    m_ring_buffer = ring_buffer;
-    m_element_alignment = element_alignment;
-    m_element_size_in_bytes = element_size;
-    m_queue_length = number_of_elements;
+    ring_buffer_object.m_ring_buffer = ring_buffer;
+    ring_buffer_object.m_element_alignment = element_alignment;
+    ring_buffer_object.m_element_size_in_bytes = element_size;
+    ring_buffer_object.m_queue_length = number_of_elements;
 
-    auto result = m_header.mutex.Initialize(is_inter_process);
+    auto result = ring_buffer_object.m_header.mutex.Initialize(is_inter_process);
     if (not result.has_value()) {
         return std::unexpected(result.error());
     }
-    result = m_header.not_empty_condition_variable.Initialize(is_inter_process);
+    result = ring_buffer_object.m_header.not_empty_condition_variable.Initialize(is_inter_process);
     if (not result.has_value()) {
         result.error().error_message.append("| not_empty_condition_variable");
         return std::unexpected(result.error());
     }
-    result = m_header.not_full_condition_variable.Initialize(is_inter_process);
+    result = ring_buffer_object.m_header.not_full_condition_variable.Initialize(is_inter_process);
     if (not result.has_value()) {
         result.error().error_message.append("| not_full_condition_variable");
         return std::unexpected(result.error());
@@ -58,7 +59,7 @@ auto RingBuffer::Initialize(uint8_t* ring_buffer, uint64_t element_size, uint64_
     return {};
 }
 
-[[nodiscard]] auto RingBuffer::GetWriteSlot() -> std::expected<WriteSlot, PikaError>
+[[nodiscard]] auto RingBufferLockProtected::GetWriteSlot() -> std::expected<WriteSlot, PikaError>
 {
     auto locked_mutex_result = LockedMutex::New(&m_header.mutex);
     if (not locked_mutex_result.has_value()) {
@@ -75,7 +76,7 @@ auto RingBuffer::Initialize(uint8_t* ring_buffer, uint64_t element_size, uint64_
     return write_slot;
 }
 
-[[nodiscard]] auto RingBuffer::GetReadSlot() -> std::expected<ReadSlot, PikaError>
+[[nodiscard]] auto RingBufferLockProtected::GetReadSlot() -> std::expected<ReadSlot, PikaError>
 {
     auto locked_mutex_result = LockedMutex::New(&m_header.mutex);
     if (not locked_mutex_result.has_value()) {

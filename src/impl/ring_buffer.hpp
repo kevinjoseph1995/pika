@@ -26,6 +26,7 @@
 #include "error.hpp"
 #include "synchronization_primitives.hpp"
 // System includes
+#include <__concepts/derived_from.h>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -47,7 +48,7 @@ private:
         , m_cv(cv)
     {
     }
-    friend struct RingBuffer;
+    friend struct RingBufferLockProtected;
     uint8_t* m_element = nullptr;
     LockedMutex m_locked_mutex;
     ConditionVariable* m_cv = nullptr;
@@ -66,33 +67,48 @@ protected:
         , m_cv(cv)
     {
     }
-    friend struct RingBuffer;
+    friend struct RingBufferLockProtected;
     uint8_t const* m_element = nullptr;
     LockedMutex m_locked_mutex;
     ConditionVariable* m_cv = nullptr;
 };
 
-struct RingBuffer {
-public:
-    [[nodiscard]] auto Initialize(uint8_t* buffer, uint64_t element_size,
-        uint64_t element_alignment, uint64_t number_of_elements, bool is_inter_process)
-        -> std::expected<void, PikaError>;
-
-    [[nodiscard]] auto GetWriteSlot() -> std::expected<WriteSlot, PikaError>;
-
-    [[nodiscard]] auto GetReadSlot() -> std::expected<ReadSlot, PikaError>;
-
+struct RingBufferBase {
+    [[nodiscard]] virtual auto Initialize(uint8_t* buffer, uint64_t element_size,
+        uint64_t element_alignment, uint64_t number_of_elements) -> std::expected<void, PikaError>
+        = 0;
+    [[nodiscard]] virtual auto GetWriteSlot() -> std::expected<WriteSlot, PikaError> = 0;
+    [[nodiscard]] virtual auto GetReadSlot() -> std::expected<ReadSlot, PikaError> = 0;
     [[nodiscard]] auto GetElementAlignment() const -> uint64_t { return m_element_alignment; }
     [[nodiscard]] auto GetElementSizeInBytes() const -> uint64_t { return m_element_size_in_bytes; }
     [[nodiscard]] auto GetElementAlignment() -> uint64_t { return m_element_alignment; }
     [[nodiscard]] auto GetQueueLength() -> uint64_t { return m_queue_length; }
 
-private:
+protected:
     [[nodiscard]] auto getBufferSlot(uint64_t index) -> uint8_t*
     {
         return m_ring_buffer + index * m_element_size_in_bytes;
     }
+    uint8_t* m_ring_buffer = nullptr;
+    uint64_t m_element_alignment = 0;
+    uint64_t m_element_size_in_bytes = 0;
+    uint64_t m_queue_length = 0;
+};
 
+template <typename T>
+concept RingBufferType = std::derived_from<T, RingBufferBase>;
+
+struct RingBufferLockProtected : public RingBufferBase {
+public:
+    [[nodiscard]] auto GetWriteSlot() -> std::expected<WriteSlot, PikaError> override;
+    [[nodiscard]] auto GetReadSlot() -> std::expected<ReadSlot, PikaError> override;
+
+protected:
+    [[nodiscard]] static auto initialize(RingBufferLockProtected& ring_buffer_object,
+        uint8_t* buffer, uint64_t element_size, uint64_t element_alignment,
+        uint64_t number_of_elements, bool is_inter_process) -> std::expected<void, PikaError>;
+
+private:
     struct Header {
         Mutex mutex {}; // Coarse grained lock protecting all accesses to the buffer
         ConditionVariable not_empty_condition_variable {};
@@ -101,11 +117,24 @@ private:
         uint64_t read_index = 0;
         uint64_t count = 0;
     } m_header {};
+};
 
-    uint8_t* m_ring_buffer = nullptr;
-    uint64_t m_element_alignment = 0;
-    uint64_t m_element_size_in_bytes = 0;
-    uint64_t m_queue_length = 0;
+struct RingBufferInterProcessLockProtected : public RingBufferLockProtected {
+    [[nodiscard]] auto Initialize(uint8_t* buffer, uint64_t element_size,
+        uint64_t element_alignment, uint64_t number_of_elements) -> std::expected<void, PikaError>
+    {
+        return RingBufferLockProtected::initialize(
+            *this, buffer, element_size, element_alignment, number_of_elements, true);
+    }
+};
+
+struct RingBufferInterThreadLockProtected : public RingBufferLockProtected {
+    [[nodiscard]] auto Initialize(uint8_t* buffer, uint64_t element_size,
+        uint64_t element_alignment, uint64_t number_of_elements) -> std::expected<void, PikaError>
+    {
+        return RingBufferLockProtected::initialize(
+            *this, buffer, element_size, element_alignment, number_of_elements, false);
+    }
 };
 
 #endif

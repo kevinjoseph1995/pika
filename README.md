@@ -3,6 +3,7 @@
 An experimental self learning project.
 
 Usage:
+### Inter-process
 ##### Producer side on process 1
 ```cpp
 auto const params = pika::ChannelParameters {
@@ -25,8 +26,8 @@ consumer->Receive(recv_packet);
 assert(recv_packet == 44);
 ```
 
-Single producer single consumer lockfree implementation
-##### Producer
+### Single producer single consumer lockfree inter thread
+##### Producer on Thread 1
 ```cpp
 auto const params = pika::ChannelParameters { .channel_name = "/test",
         .queue_size = 1,
@@ -38,7 +39,7 @@ producer->Connect();
 producer->Send(44);
 ```
 
-##### Consumer
+##### Consumer on Thread 2
 ```cpp
 auto const params = pika::ChannelParameters { .channel_name = "/test",
         .queue_size = 1,

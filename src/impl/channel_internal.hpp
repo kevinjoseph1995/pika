@@ -183,9 +183,12 @@ struct ConsumerInternal : public pika::ConsumerImpl {
         }
         return {};
     }
+
     virtual ~ConsumerInternal()
     {
         GetHeader<BackingStorageType, RingBuffer>(m_storage).m_consumer_count.fetch_sub(1);
+        fmt::println(stderr, "Consumer destructor {}",
+            GetHeader<BackingStorageType, RingBuffer>(m_storage).m_consumer_count.load());
     }
 
 private:
@@ -237,6 +240,8 @@ struct ProducerInternal : public pika::ProducerImpl {
     virtual ~ProducerInternal()
     {
         GetHeader<BackingStorageType, RingBuffer>(m_storage).m_producer_count.fetch_sub(1);
+        fmt::println(stderr, "Producer destructor {}",
+            GetHeader<BackingStorageType, RingBuffer>(m_storage).m_producer_count.load());
     }
 
 private:

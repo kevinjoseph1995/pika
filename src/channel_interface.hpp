@@ -28,8 +28,12 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <type_traits>
 
 namespace pika {
+
+template <typename T>
+concept ChannelPacketType = std::is_pod_v<T>;
 
 struct ProducerImpl {
     virtual ~ProducerImpl() = default;
@@ -43,7 +47,7 @@ struct ConsumerImpl {
     virtual auto Receive(uint8_t* const destination_buffer) -> std::expected<void, PikaError> = 0;
 };
 
-template <typename DataT> struct Producer {
+template <ChannelPacketType DataT> struct Producer {
     auto Send(DataT const& packet) -> std::expected<void, PikaError>
     {
         return m_impl->Send(reinterpret_cast<uint8_t const*>(&packet));
@@ -60,7 +64,7 @@ private:
     std::unique_ptr<ProducerImpl> m_impl;
 };
 
-template <typename DataT> struct Consumer {
+template <ChannelPacketType DataT> struct Consumer {
     auto Receive(DataT& packet) -> std::expected<void, PikaError>
     {
         return m_impl->Receive(reinterpret_cast<uint8_t*>(&packet));
@@ -92,7 +96,7 @@ struct Channel {
     static auto __CreateConsumerImpl(ChannelParameters const& channel_params, uint64_t element_size,
         uint64_t element_alignment) -> std::expected<std::unique_ptr<ConsumerImpl>, PikaError>;
 
-    template <typename DataT>
+    template <ChannelPacketType DataT>
     static auto CreateProducer(ChannelParameters const& channel_params)
         -> std::expected<Producer<DataT>, PikaError>
     {
@@ -104,7 +108,7 @@ struct Channel {
         }
     }
 
-    template <typename DataT>
+    template <ChannelPacketType DataT>
     static auto CreateConsumer(ChannelParameters const& channel_params)
         -> std::expected<Consumer<DataT>, PikaError>
     {

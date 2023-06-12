@@ -27,11 +27,13 @@
 #include "backing_storage.hpp"
 #include "channel_header.hpp"
 #include "channel_interface.hpp"
+#include "error.hpp"
 #include "fmt/core.h"
 #include "ring_buffer.hpp"
 #include "synchronization_primitives.hpp"
 #include "utils.hpp"
 
+#include <__expected/unexpected.h>
 #include <atomic>
 #include <concepts>
 #include <memory>
@@ -155,6 +157,11 @@ struct ConsumerInternal : public pika::ConsumerImpl {
             return std::unexpected { backing_storage_result.error() };
         }
         auto& header = GetHeader<BackingStorageType, RingBuffer>(*backing_storage_result);
+        if (header.single_producer_single_consumer_mode && header.consumer_count.load() == 1) {
+            return std::unexpected { PikaError { .error_type = PikaErrorType::ChannelError,
+                .error_message = "Cannot register more than 1 consumer in "
+                                 "single_producer_single_consumer_mode" } };
+        }
         header.consumer_count.fetch_add(1);
         return std::unique_ptr<ConsumerInternal<BackingStorageType, RingBuffer>>(
             new ConsumerInternal<BackingStorageType, RingBuffer>(
@@ -206,6 +213,11 @@ struct ProducerInternal : public pika::ProducerImpl {
             return std::unexpected { backing_storage_result.error() };
         }
         auto& header = GetHeader<BackingStorageType, RingBuffer>(*backing_storage_result);
+        if (header.single_producer_single_consumer_mode && header.producer_count.load() == 1) {
+            return std::unexpected { PikaError { .error_type = PikaErrorType::ChannelError,
+                .error_message = "Cannot register more than 1 producer in "
+                                 "single_producer_single_consumer_mode" } };
+        }
         header.producer_count.fetch_add(1);
         return std::unique_ptr<ProducerInternal<BackingStorageType, RingBuffer>>(
             new ProducerInternal<BackingStorageType, RingBuffer>(

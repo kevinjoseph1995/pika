@@ -39,7 +39,13 @@ auto PrintBackTrace() -> void;
 
 #define TODO(message) PIKA_ASSERT(false, message)
 
-enum class PikaErrorType { Unknown, SharedBufferError, SyncPrimitiveError, RingBufferError };
+enum class PikaErrorType {
+    Unknown,
+    SharedBufferError,
+    SyncPrimitiveError,
+    RingBufferError,
+    ChannelError
+};
 
 struct PikaError {
     PikaErrorType error_type = PikaErrorType::Unknown;

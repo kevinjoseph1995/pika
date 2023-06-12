@@ -133,6 +133,29 @@ struct Channel {
             return std::unexpected(impl.error());
         }
     }
+    template <ChannelPacketType DataT>
+    static auto CreateProducerOnHeap(ChannelParameters const& channel_params)
+        -> std::expected<std::unique_ptr<Producer<DataT>>, PikaError>
+    {
+        auto impl = __CreateProducerImpl(channel_params, sizeof(DataT), alignof(DataT));
+        if (impl.has_value()) {
+            return std::unique_ptr<Producer<DataT>>(new Producer<DataT> { std::move(*impl) });
+        } else {
+            return std::unexpected(impl.error());
+        }
+    }
+
+    template <ChannelPacketType DataT>
+    static auto CreateConsumerOnHeap(ChannelParameters const& channel_params)
+        -> std::expected<std::unique_ptr<Consumer<DataT>>, PikaError>
+    {
+        auto impl = __CreateConsumerImpl(channel_params, sizeof(DataT), alignof(DataT));
+        if (impl.has_value()) {
+            return std::unique_ptr<Consumer<DataT>>(new Consumer<DataT> { std::move(*impl) });
+        } else {
+            return std::unexpected(impl.error());
+        }
+    }
     Channel() = delete;
 };
 

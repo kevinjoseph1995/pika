@@ -38,6 +38,62 @@ TEST(InterProcessChannel, Connection)
     ASSERT_TRUE(result2->IsConnected());
 }
 
+TEST(InterProcessChannel, Disconnect1)
+{
+    auto params = pika::ChannelParameters {
+        .channel_name = "/test", .queue_size = 4, .channel_type = pika::ChannelType::InterProcess
+    };
+    auto child_process_handle = ChildProcessHandle::RunChildFunction([&]() -> ChildProcessState {
+        auto producer = pika::Channel::CreateProducerOnHeap<int>(params);
+        if (not producer.has_value()) {
+            fmt::println(stderr, "{}", producer.error().error_message);
+            return ChildProcessState::FAIL;
+        }
+        auto connect_result = (*producer)->Connect();
+        if (not connect_result.has_value()) {
+            fmt::println(stderr, "{}", connect_result.error().error_message);
+            return ChildProcessState::FAIL;
+        }
+        (*producer).reset(nullptr);
+        return ChildProcessState::SUCCESS;
+    });
+    ASSERT_TRUE(child_process_handle.has_value()) << child_process_handle.error().error_message;
+    // Setup consumer
+    auto consumer = pika::Channel::CreateConsumer<int>(params);
+    auto connect_result = consumer->Connect();
+    ASSERT_TRUE(connect_result.has_value()) << connect_result.error().error_message;
+    std::this_thread::sleep_for(1ms); // Give enough time to destroy the producer
+    ASSERT_FALSE(consumer->IsConnected());
+}
+
+TEST(InterProcessChannel, Disconnect2)
+{
+    auto params = pika::ChannelParameters {
+        .channel_name = "/test", .queue_size = 4, .channel_type = pika::ChannelType::InterProcess
+    };
+    auto child_process_handle = ChildProcessHandle::RunChildFunction([&]() -> ChildProcessState {
+        auto consumer = pika::Channel::CreateConsumerOnHeap<int>(params);
+        if (not consumer.has_value()) {
+            fmt::println(stderr, "{}", consumer.error().error_message);
+            return ChildProcessState::FAIL;
+        }
+        auto connect_result = (*consumer)->Connect();
+        if (not connect_result.has_value()) {
+            fmt::println(stderr, "{}", connect_result.error().error_message);
+            return ChildProcessState::FAIL;
+        }
+        (*consumer).reset(nullptr);
+        return ChildProcessState::SUCCESS;
+    });
+    ASSERT_TRUE(child_process_handle.has_value()) << child_process_handle.error().error_message;
+    // Setup consumer
+    auto producer = pika::Channel::CreateProducer<int>(params);
+    auto connect_result = producer->Connect();
+    ASSERT_TRUE(connect_result.has_value()) << connect_result.error().error_message;
+    std::this_thread::sleep_for(1ms); // Give enough time to destroy the consumer
+    ASSERT_FALSE(producer->IsConnected());
+}
+
 TEST(InterProcessChannel, TxRx)
 {
     auto const params = pika::ChannelParameters {

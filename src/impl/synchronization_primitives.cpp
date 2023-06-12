@@ -148,7 +148,7 @@ auto Mutex::Lock() -> std::expected<void, PikaError>
     return {};
 }
 
-auto Mutex::LockTimed(pika::DurationUs duration) -> std::expected<void, PikaError>
+auto Mutex::LockTimed(DurationUs duration) -> std::expected<void, PikaError>
 {
     timespec t { .tv_sec = 0, .tv_nsec = static_cast<decltype(timespec::tv_nsec)>(duration) };
     if (not m_initialized) {
@@ -198,8 +198,7 @@ auto LockedMutex::New(Mutex* mutex) -> std::expected<LockedMutex, PikaError>
     return LockedMutex { mutex };
 }
 
-auto LockedMutex::New(Mutex* mutex, pika::DurationUs timeout)
-    -> std::expected<LockedMutex, PikaError>
+auto LockedMutex::New(Mutex* mutex, DurationUs timeout) -> std::expected<LockedMutex, PikaError>
 {
     PIKA_ASSERT(mutex != nullptr);
     if (not mutex->m_initialized) {

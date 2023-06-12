@@ -68,8 +68,8 @@ auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_ob
     return {};
 }
 
-[[nodiscard]] auto RingBufferLockProtected::Put(uint8_t const* const element,
-    pika::DurationUs timeout_duration) -> std::expected<void, PikaError>
+[[nodiscard]] auto RingBufferLockProtected::Put(
+    uint8_t const* const element, DurationUs timeout_duration) -> std::expected<void, PikaError>
 {
     {
         auto locked_mutex_result = [&]() {
@@ -91,8 +91,8 @@ auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_ob
     return {};
 }
 
-[[nodiscard]] auto RingBufferLockProtected::Get(
-    uint8_t* const element, pika::DurationUs timeout_duration) -> std::expected<void, PikaError>
+[[nodiscard]] auto RingBufferLockProtected::Get(uint8_t* const element, DurationUs timeout_duration)
+    -> std::expected<void, PikaError>
 {
     {
         auto locked_mutex_result = [&]() {
@@ -126,7 +126,7 @@ auto RingBufferLockFree::Initialize(uint8_t* buffer, uint64_t element_size,
     return {};
 }
 
-auto RingBufferLockFree::Put(uint8_t const* const element, pika::DurationUs timeout_duration)
+auto RingBufferLockFree::Put(uint8_t const* const element, DurationUs timeout_duration)
     -> std::expected<void, PikaError>
 {
     auto const current_tail = m_tail.load(std::memory_order_relaxed);
@@ -147,7 +147,7 @@ auto RingBufferLockFree::Put(uint8_t const* const element, pika::DurationUs time
     return {};
 }
 
-auto RingBufferLockFree::Get(uint8_t* const element, pika::DurationUs timeout_duration)
+auto RingBufferLockFree::Get(uint8_t* const element, DurationUs timeout_duration)
     -> std::expected<void, PikaError>
 {
     auto const current_head = m_head.load(std::memory_order_relaxed);

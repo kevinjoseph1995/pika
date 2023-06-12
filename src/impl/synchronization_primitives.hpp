@@ -59,7 +59,7 @@ struct Mutex {
 
     [[nodiscard]] auto Initialize(bool inter_process = false) -> std::expected<void, PikaError>;
     [[nodiscard]] auto Lock() -> std::expected<void, PikaError>;
-    [[nodiscard]] auto LockTimed(pika::DurationUs duration) -> std::expected<void, PikaError>;
+    [[nodiscard]] auto LockTimed(DurationUs duration) -> std::expected<void, PikaError>;
     [[nodiscard]] auto Unlock() -> std::expected<void, PikaError>;
 
     ~Mutex();
@@ -73,7 +73,7 @@ private:
 
 struct LockedMutex {
     [[nodiscard]] static auto New(Mutex* mutex) -> std::expected<LockedMutex, PikaError>;
-    [[nodiscard]] static auto New(Mutex* mutex, pika::DurationUs duration)
+    [[nodiscard]] static auto New(Mutex* mutex, DurationUs duration)
         -> std::expected<LockedMutex, PikaError>;
     ~LockedMutex();
     LockedMutex(LockedMutex const&) = delete;

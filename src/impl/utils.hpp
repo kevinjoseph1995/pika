@@ -26,12 +26,13 @@
 #include "channel_interface.hpp"
 #include "error.hpp"
 
-#include <__chrono/duration.h>
 #include <chrono>
 #include <cstdint>
 #include <ratio>
 #include <time.h>
 #include <utility>
+
+using namespace pika;
 
 template <typename Function> struct Defer {
     Defer(Function function)
@@ -48,9 +49,9 @@ struct Timer {
         : m_start_point(Clock::now())
     {
     }
-    [[nodiscard]] auto GetElapsedDuration() -> pika::DurationUs
+    [[nodiscard]] auto GetElapsedDuration() -> DurationUs
     {
-        return std::chrono::duration_cast<std::chrono::duration<pika::DurationUs, std::micro>>(
+        return std::chrono::duration_cast<std::chrono::duration<DurationUs, std::micro>>(
             Clock::now() - m_start_point)
             .count();
         ;

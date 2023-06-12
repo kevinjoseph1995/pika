@@ -187,6 +187,11 @@ struct ConsumerInternal : public pika::ConsumerImpl {
         return {};
     }
 
+    auto IsConnected() -> bool override
+    {
+        return GetHeader<BackingStorageType, RingBuffer>(m_storage).producer_count.load() > 0;
+    }
+
     virtual ~ConsumerInternal()
     {
         auto& header = GetHeader<BackingStorageType, RingBuffer>(m_storage);
@@ -244,6 +249,11 @@ struct ProducerInternal : public pika::ProducerImpl {
         }
 
         return {};
+    }
+
+    auto IsConnected() -> bool override
+    {
+        return GetHeader<BackingStorageType, RingBuffer>(m_storage).consumer_count.load() > 0;
     }
 
     virtual ~ProducerInternal()

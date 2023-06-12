@@ -34,6 +34,9 @@ TEST(InterThreadChannel, Connection)
 
     ASSERT_TRUE(result1->Connect().has_value());
     ASSERT_TRUE(result2->Connect().has_value());
+
+    ASSERT_TRUE(result1->IsConnected());
+    ASSERT_TRUE(result2->IsConnected());
 }
 
 TEST(InterThreadChannel, TxRx)

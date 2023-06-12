@@ -45,6 +45,7 @@ struct ProducerImpl {
     virtual auto Send(uint8_t const* const source_buffer, DurationUs timeout_duration)
         -> std::expected<void, PikaError>
         = 0;
+    virtual auto IsConnected() -> bool = 0;
 };
 
 struct ConsumerImpl {
@@ -53,6 +54,7 @@ struct ConsumerImpl {
     virtual auto Receive(uint8_t* const destination_buffer, DurationUs timeout_duration)
         -> std::expected<void, PikaError>
         = 0;
+    virtual auto IsConnected() -> bool = 0;
 };
 
 template <ChannelPacketType DataT> struct Producer {
@@ -63,6 +65,7 @@ template <ChannelPacketType DataT> struct Producer {
     }
 
     auto Connect() -> std::expected<void, PikaError> { return m_impl->Connect(); }
+    auto IsConnected() -> bool { return m_impl->IsConnected(); }
 
 private:
     friend struct Channel;
@@ -81,6 +84,7 @@ template <ChannelPacketType DataT> struct Consumer {
     }
 
     auto Connect() -> std::expected<void, PikaError> { return m_impl->Connect(); }
+    auto IsConnected() -> bool { return m_impl->IsConnected(); }
 
 private:
     friend struct Channel;

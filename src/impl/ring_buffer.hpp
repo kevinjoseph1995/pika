@@ -123,39 +123,4 @@ private:
     std::atomic_uint64_t m_tail = 0;
     uint64_t m_internal_queue_length = 0;
 };
-
-template <RingBufferType RingBuffer> struct SharedBufferHeader {
-    std::atomic<uint64_t> m_producer_count = 0;
-    std::atomic<uint64_t> m_consumer_count = 0;
-    bool single_producer_single_consumer_mode = false;
-    RingBuffer ring_buffer;
-};
-
-template <RingBufferType RingBuffer>
-[[nodiscard]] static constexpr auto GetRingBufferSlotsOffset(uint64_t element_alignment)
-{
-    PIKA_ASSERT(element_alignment % 2 == 0);
-    if (element_alignment < sizeof(SharedBufferHeader<RingBuffer>)) {
-        return ((sizeof(SharedBufferHeader<RingBuffer>) / element_alignment) + 1)
-            * element_alignment;
-    } else {
-        return element_alignment;
-    }
-}
-
-template <RingBufferType RingBuffer>
-[[nodiscard]] constexpr auto GetBufferSize(
-    uint64_t queue_size, uint64_t element_size, uint64_t element_alignment) -> uint64_t
-{
-    return GetRingBufferSlotsOffset<RingBuffer>(element_alignment) + (queue_size * element_size);
-}
-
-template <>
-[[nodiscard]] constexpr auto GetBufferSize<RingBufferLockFree>(
-    uint64_t queue_size, uint64_t element_size, uint64_t element_alignment) -> uint64_t
-{
-    return GetRingBufferSlotsOffset<RingBufferLockFree>(element_alignment)
-        + ((queue_size + 1) * element_size);
-}
-
 #endif

@@ -25,9 +25,11 @@
 #define PIKA_CHANNEL_INTERNAL_HPP
 
 #include "backing_storage.hpp"
+#include "channel_header.hpp"
 #include "channel_interface.hpp"
 #include "fmt/core.h"
 #include "ring_buffer.hpp"
+#include "synchronization_primitives.hpp"
 #include "utils.hpp"
 
 #include <atomic>
@@ -59,10 +61,10 @@ static auto PrepareHeader(pika::ChannelParameters const& channel_params, uint64_
     // We now have exclusive access to either create or re-open an already
     // existing shared memory segment
 
-    auto header = reinterpret_cast<SharedBufferHeader<RingBuffer>*>(storage.GetBuffer());
-    if (header->m_consumer_count.load() == 0 && header->m_producer_count.load() == 0) {
+    auto header = reinterpret_cast<ChannelHeader<RingBuffer>*>(storage.GetBuffer());
+    if (not header->registered.load()) {
         // This segment was not previously initialized by another producer/consumer
-        header = new (header) SharedBufferHeader<RingBuffer> {};
+        header = new (header) ChannelHeader<RingBuffer> {};
         header->single_producer_single_consumer_mode
             = channel_params.single_producer_single_consumer_mode;
         auto result = header->ring_buffer.Initialize(
@@ -71,6 +73,7 @@ static auto PrepareHeader(pika::ChannelParameters const& channel_params, uint64_
         if (not result.has_value()) {
             return std::unexpected { result.error() };
         }
+        header->registered.store(true);
     } else {
         // This segment was previously initialized by another producer / consumer
         // Validate the header with the current parameters
@@ -93,13 +96,6 @@ static auto PrepareHeader(pika::ChannelParameters const& channel_params, uint64_
                 = fmt::format("Existing ring buffer element alignment: {}; Requested "
                               "element alignment: {}",
                     header->ring_buffer.GetElementAlignment(), element_alignment) } };
-        }
-        if (channel_params.single_producer_single_consumer_mode
-            && (header->m_consumer_count.load() > 1 || header->m_producer_count.load())) {
-            return std::unexpected { PikaError { .error_type = PikaErrorType::RingBufferError,
-                .error_message
-                = "Can only register one producer and one consumer when using "
-                  "ChannelParameters::single_producer_single_consumer_mode is set to true" } };
         }
         if (channel_params.single_producer_single_consumer_mode
             != header->single_producer_single_consumer_mode) {
@@ -127,7 +123,7 @@ template <typename BackingStorageType, RingBufferType RingBuffer>
         return std::unexpected { shared_buffer_result.error() };
     }
     if (reinterpret_cast<std::uintptr_t>(backing_storage.GetBuffer())
-            % alignof(SharedBufferHeader<RingBuffer>)
+            % alignof(ChannelHeader<RingBuffer>)
         != 0) {
         return std::unexpected(PikaError { .error_type = PikaErrorType::RingBufferError,
             .error_message = "CreateSharedBuffer::Create buffer is not aligned" });
@@ -140,10 +136,10 @@ template <typename BackingStorageType, RingBufferType RingBuffer>
     return backing_storage;
 }
 template <typename BackingStorageType, RingBufferType RingBuffer>
-auto GetHeader(BackingStorageType& storage) -> SharedBufferHeader<RingBuffer>&
+auto GetHeader(BackingStorageType& storage) -> ChannelHeader<RingBuffer>&
 {
     PIKA_ASSERT(storage.GetSize() != 0 && storage.GetBuffer() != nullptr);
-    return *reinterpret_cast<SharedBufferHeader<RingBuffer>*>(storage.GetBuffer());
+    return *reinterpret_cast<ChannelHeader<RingBuffer>*>(storage.GetBuffer());
 }
 
 template <typename BackingStorageType, RingBufferType RingBuffer>
@@ -158,8 +154,8 @@ struct ConsumerInternal : public pika::ConsumerImpl {
         if (!backing_storage_result.has_value()) {
             return std::unexpected { backing_storage_result.error() };
         }
-        GetHeader<BackingStorageType, RingBuffer>(*backing_storage_result)
-            .m_consumer_count.fetch_add(1);
+        auto& header = GetHeader<BackingStorageType, RingBuffer>(*backing_storage_result);
+        header.consumer_count.fetch_add(1);
         return std::unique_ptr<ConsumerInternal<BackingStorageType, RingBuffer>>(
             new ConsumerInternal<BackingStorageType, RingBuffer>(
                 std::move(*backing_storage_result)));
@@ -167,13 +163,12 @@ struct ConsumerInternal : public pika::ConsumerImpl {
 
     auto Connect() -> std::expected<void, PikaError> override
     {
-        // TODO: Optimize me
-        while (GetHeader<BackingStorageType, RingBuffer>(m_storage).m_producer_count.load() == 0) {
-            std::this_thread::sleep_for(1ms);
+        auto& header = GetHeader<BackingStorageType, RingBuffer>(m_storage);
+        while (header.producer_count.load() == 0) {
+            std::this_thread::yield();
         }
         return {};
     }
-
     auto Receive(uint8_t* const destination_buffer) -> std::expected<void, PikaError> override
     {
         auto result = GetHeader<BackingStorageType, RingBuffer>(m_storage).ring_buffer.Get(
@@ -186,9 +181,8 @@ struct ConsumerInternal : public pika::ConsumerImpl {
 
     virtual ~ConsumerInternal()
     {
-        GetHeader<BackingStorageType, RingBuffer>(m_storage).m_consumer_count.fetch_sub(1);
-        fmt::println(stderr, "Consumer destructor {}",
-            GetHeader<BackingStorageType, RingBuffer>(m_storage).m_consumer_count.load());
+        auto& header = GetHeader<BackingStorageType, RingBuffer>(m_storage);
+        header.consumer_count.fetch_sub(1);
     }
 
 private:
@@ -211,8 +205,8 @@ struct ProducerInternal : public pika::ProducerImpl {
         if (!backing_storage_result.has_value()) {
             return std::unexpected { backing_storage_result.error() };
         }
-        GetHeader<BackingStorageType, RingBuffer>(*backing_storage_result)
-            .m_producer_count.fetch_add(1);
+        auto& header = GetHeader<BackingStorageType, RingBuffer>(*backing_storage_result);
+        header.producer_count.fetch_add(1);
         return std::unique_ptr<ProducerInternal<BackingStorageType, RingBuffer>>(
             new ProducerInternal<BackingStorageType, RingBuffer>(
                 std::move(*backing_storage_result)));
@@ -220,9 +214,9 @@ struct ProducerInternal : public pika::ProducerImpl {
 
     auto Connect() -> std::expected<void, PikaError> override
     {
-        // TODO: Optimize me
-        while (GetHeader<BackingStorageType, RingBuffer>(m_storage).m_consumer_count.load() == 0) {
-            std::this_thread::sleep_for(1ms);
+        auto& header = GetHeader<BackingStorageType, RingBuffer>(m_storage);
+        while (header.consumer_count.load() == 0) {
+            std::this_thread::yield();
         }
         return {};
     }
@@ -239,9 +233,8 @@ struct ProducerInternal : public pika::ProducerImpl {
 
     virtual ~ProducerInternal()
     {
-        GetHeader<BackingStorageType, RingBuffer>(m_storage).m_producer_count.fetch_sub(1);
-        fmt::println(stderr, "Producer destructor {}",
-            GetHeader<BackingStorageType, RingBuffer>(m_storage).m_producer_count.load());
+        auto& header = GetHeader<BackingStorageType, RingBuffer>(m_storage);
+        header.producer_count.fetch_sub(1);
     }
 
 private:

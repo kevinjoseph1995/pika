@@ -23,6 +23,7 @@
 #ifndef PIKA_SHARED_RING_BUFFER_HPP
 #define PIKA_SHARED_RING_BUFFER_HPP
 
+#include "channel_interface.hpp"
 #include "error.hpp"
 #include "synchronization_primitives.hpp"
 // System includes
@@ -39,10 +40,13 @@ struct RingBufferBase {
     [[nodiscard]] virtual auto Initialize(uint8_t* buffer, uint64_t element_size,
         uint64_t element_alignment, uint64_t number_of_elements) -> std::expected<void, PikaError>
         = 0;
-    [[nodiscard]] virtual auto Put(uint8_t const* const element) -> std::expected<void, PikaError>
+    [[nodiscard]] virtual auto Put(uint8_t const* const element, pika::DurationUs timeout_duration)
+        -> std::expected<void, PikaError>
         = 0;
 
-    [[nodiscard]] virtual auto Get(uint8_t* const element) -> std::expected<void, PikaError> = 0;
+    [[nodiscard]] virtual auto Get(uint8_t* const element, pika::DurationUs timeout_duration)
+        -> std::expected<void, PikaError>
+        = 0;
     [[nodiscard]] auto GetElementAlignment() const -> uint64_t { return m_element_alignment; }
     [[nodiscard]] auto GetElementSizeInBytes() const -> uint64_t { return m_element_size_in_bytes; }
     [[nodiscard]] auto GetQueueLength() -> uint64_t { return m_queue_length; }
@@ -64,8 +68,10 @@ concept RingBufferType = std::derived_from<T, RingBufferBase>;
 
 struct RingBufferLockProtected : public RingBufferBase {
 public:
-    [[nodiscard]] auto Put(uint8_t const* const element) -> std::expected<void, PikaError> override;
-    [[nodiscard]] auto Get(uint8_t* const element) -> std::expected<void, PikaError> override;
+    [[nodiscard]] auto Put(uint8_t const* const element, pika::DurationUs timeout_duration)
+        -> std::expected<void, PikaError> override;
+    [[nodiscard]] auto Get(uint8_t* const element, pika::DurationUs timeout_duration)
+        -> std::expected<void, PikaError> override;
 
 protected:
     [[nodiscard]] static auto initialize(RingBufferLockProtected& ring_buffer_object,
@@ -105,8 +111,10 @@ struct RingBufferLockFree : public RingBufferBase {
     [[nodiscard]] auto Initialize(uint8_t* buffer, uint64_t element_size,
         uint64_t element_alignment, uint64_t number_of_elements)
         -> std::expected<void, PikaError> override;
-    [[nodiscard]] auto Put(uint8_t const* const element) -> std::expected<void, PikaError> override;
-    [[nodiscard]] auto Get(uint8_t* const element) -> std::expected<void, PikaError> override;
+    [[nodiscard]] auto Put(uint8_t const* const element, pika::DurationUs timeout_duration)
+        -> std::expected<void, PikaError> override;
+    [[nodiscard]] auto Get(uint8_t* const element, pika::DurationUs timeout_duration)
+        -> std::expected<void, PikaError> override;
 
 private:
     [[nodiscard]] auto getBufferSlot_(uint64_t index) -> uint8_t*

@@ -23,8 +23,11 @@
 #ifndef PIKA_SYNC_PRIM_HPP
 #define PIKA_SYNC_PRIM_HPP
 
+#include "channel_interface.hpp"
 #include "error.hpp"
+#include "utils.hpp"
 
+#include <bits/types/struct_timespec.h>
 #include <cstdint>
 #include <cstdio>
 #include <expected>
@@ -56,6 +59,7 @@ struct Mutex {
 
     [[nodiscard]] auto Initialize(bool inter_process = false) -> std::expected<void, PikaError>;
     [[nodiscard]] auto Lock() -> std::expected<void, PikaError>;
+    [[nodiscard]] auto LockTimed(pika::DurationUs duration) -> std::expected<void, PikaError>;
     [[nodiscard]] auto Unlock() -> std::expected<void, PikaError>;
 
     ~Mutex();
@@ -69,6 +73,8 @@ private:
 
 struct LockedMutex {
     [[nodiscard]] static auto New(Mutex* mutex) -> std::expected<LockedMutex, PikaError>;
+    [[nodiscard]] static auto New(Mutex* mutex, pika::DurationUs duration)
+        -> std::expected<LockedMutex, PikaError>;
     ~LockedMutex();
     LockedMutex(LockedMutex const&) = delete;
     LockedMutex(LockedMutex&& other)

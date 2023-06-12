@@ -176,10 +176,11 @@ struct ConsumerInternal : public pika::ConsumerImpl {
         }
         return {};
     }
-    auto Receive(uint8_t* const destination_buffer) -> std::expected<void, PikaError> override
+    auto Receive(uint8_t* const destination_buffer, pika::DurationUs timeout)
+        -> std::expected<void, PikaError> override
     {
         auto result = GetHeader<BackingStorageType, RingBuffer>(m_storage).ring_buffer.Get(
-            destination_buffer);
+            destination_buffer, timeout);
         if (not result.has_value()) {
             return std::unexpected { result.error() };
         }
@@ -233,13 +234,15 @@ struct ProducerInternal : public pika::ProducerImpl {
         return {};
     }
 
-    auto Send(uint8_t const* const source_buffer) -> std::expected<void, PikaError> override
+    auto Send(uint8_t const* const source_buffer, pika::DurationUs timeout)
+        -> std::expected<void, PikaError> override
     {
-        auto result
-            = GetHeader<BackingStorageType, RingBuffer>(m_storage).ring_buffer.Put(source_buffer);
+        auto result = GetHeader<BackingStorageType, RingBuffer>(m_storage).ring_buffer.Put(
+            source_buffer, timeout);
         if (not result.has_value()) {
             return std::unexpected { result.error() };
         }
+
         return {};
     }
 

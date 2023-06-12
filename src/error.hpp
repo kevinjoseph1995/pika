@@ -44,7 +44,8 @@ enum class PikaErrorType {
     SharedBufferError,
     SyncPrimitiveError,
     RingBufferError,
-    ChannelError
+    ChannelError,
+    Timeout
 };
 
 struct PikaError {

@@ -27,6 +27,7 @@
 
 #include <cstdint>
 #include <expected>
+#include <limits>
 #include <memory>
 #include <type_traits>
 
@@ -35,22 +36,30 @@ namespace pika {
 template <typename T>
 concept ChannelPacketType = std::is_pod_v<T>;
 
+using DurationUs = uint64_t;
+static constexpr DurationUs INFINITE_TIMEOUT = std::numeric_limits<DurationUs>::max();
+
 struct ProducerImpl {
     virtual ~ProducerImpl() = default;
     virtual auto Connect() -> std::expected<void, PikaError> = 0;
-    virtual auto Send(uint8_t const* const source_buffer) -> std::expected<void, PikaError> = 0;
+    virtual auto Send(uint8_t const* const source_buffer, DurationUs timeout_duration)
+        -> std::expected<void, PikaError>
+        = 0;
 };
 
 struct ConsumerImpl {
     virtual ~ConsumerImpl() = default;
     virtual auto Connect() -> std::expected<void, PikaError> = 0;
-    virtual auto Receive(uint8_t* const destination_buffer) -> std::expected<void, PikaError> = 0;
+    virtual auto Receive(uint8_t* const destination_buffer, DurationUs timeout_duration)
+        -> std::expected<void, PikaError>
+        = 0;
 };
 
 template <ChannelPacketType DataT> struct Producer {
-    auto Send(DataT const& packet) -> std::expected<void, PikaError>
+    auto Send(DataT const& packet, DurationUs timeout_duration = INFINITE_TIMEOUT)
+        -> std::expected<void, PikaError>
     {
-        return m_impl->Send(reinterpret_cast<uint8_t const*>(&packet));
+        return m_impl->Send(reinterpret_cast<uint8_t const*>(&packet), timeout_duration);
     }
 
     auto Connect() -> std::expected<void, PikaError> { return m_impl->Connect(); }
@@ -65,9 +74,10 @@ private:
 };
 
 template <ChannelPacketType DataT> struct Consumer {
-    auto Receive(DataT& packet) -> std::expected<void, PikaError>
+    auto Receive(DataT& packet, DurationUs timeout_duration = INFINITE_TIMEOUT)
+        -> std::expected<void, PikaError>
     {
-        return m_impl->Receive(reinterpret_cast<uint8_t*>(&packet));
+        return m_impl->Receive(reinterpret_cast<uint8_t*>(&packet), timeout_duration);
     }
 
     auto Connect() -> std::expected<void, PikaError> { return m_impl->Connect(); }

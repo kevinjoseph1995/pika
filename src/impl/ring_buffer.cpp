@@ -21,7 +21,9 @@
 // SOFTWARE.
 
 #include "ring_buffer.hpp"
+#include "channel_interface.hpp"
 #include "error.hpp"
+#include "synchronization_primitives.hpp"
 #include <atomic>
 #include <cstring>
 #include <expected>
@@ -66,11 +68,15 @@ auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_ob
     return {};
 }
 
-[[nodiscard]] auto RingBufferLockProtected::Put(uint8_t const* const element)
-    -> std::expected<void, PikaError>
+[[nodiscard]] auto RingBufferLockProtected::Put(uint8_t const* const element,
+    pika::DurationUs timeout_duration) -> std::expected<void, PikaError>
 {
     {
-        auto locked_mutex_result = LockedMutex::New(&mutex);
+        auto locked_mutex_result = [&]() {
+            return timeout_duration == pika::INFINITE_TIMEOUT
+                ? LockedMutex::New(&mutex)
+                : LockedMutex::New(&mutex, timeout_duration);
+        }();
         if (not locked_mutex_result.has_value()) {
             return std::unexpected { locked_mutex_result.error() };
         }
@@ -85,11 +91,15 @@ auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_ob
     return {};
 }
 
-[[nodiscard]] auto RingBufferLockProtected::Get(uint8_t* const element)
-    -> std::expected<void, PikaError>
+[[nodiscard]] auto RingBufferLockProtected::Get(
+    uint8_t* const element, pika::DurationUs timeout_duration) -> std::expected<void, PikaError>
 {
     {
-        auto locked_mutex_result = LockedMutex::New(&mutex);
+        auto locked_mutex_result = [&]() {
+            return timeout_duration == pika::INFINITE_TIMEOUT
+                ? LockedMutex::New(&mutex)
+                : LockedMutex::New(&mutex, timeout_duration);
+        }();
         if (not locked_mutex_result.has_value()) {
             return std::unexpected { locked_mutex_result.error() };
         }
@@ -116,23 +126,42 @@ auto RingBufferLockFree::Initialize(uint8_t* buffer, uint64_t element_size,
     return {};
 }
 
-auto RingBufferLockFree::Put(uint8_t const* const element) -> std::expected<void, PikaError>
+auto RingBufferLockFree::Put(uint8_t const* const element, pika::DurationUs timeout_duration)
+    -> std::expected<void, PikaError>
 {
     auto const current_tail = m_tail.load(std::memory_order_relaxed);
     auto const next_tail = incrementByOne(current_tail);
-    while (next_tail == m_head.load(std::memory_order_acquire)) {
-        std::this_thread::yield();
+    if (timeout_duration == pika::INFINITE_TIMEOUT) {
+        while (next_tail == m_head.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+    } else {
+        Timer timer;
+        while (next_tail == m_head.load(std::memory_order_acquire)
+            && timer.GetElapsedDuration() < timeout_duration) {
+            std::this_thread::yield();
+        }
     }
     std::memcpy(getBufferSlot_(current_tail), element, m_element_size_in_bytes);
     m_tail.store(next_tail, std::memory_order_release);
     return {};
 }
 
-auto RingBufferLockFree::Get(uint8_t* const element) -> std::expected<void, PikaError>
+auto RingBufferLockFree::Get(uint8_t* const element, pika::DurationUs timeout_duration)
+    -> std::expected<void, PikaError>
 {
     auto const current_head = m_head.load(std::memory_order_relaxed);
-    while (current_head == m_tail.load(std::memory_order_acquire)) {
-        std::this_thread::yield();
+    if (timeout_duration == pika::INFINITE_TIMEOUT) {
+        while (current_head == m_tail.load(std::memory_order_acquire)) {
+            std::this_thread::yield();
+        }
+
+    } else {
+        Timer timer;
+        while (current_head == m_tail.load(std::memory_order_acquire)
+            && timer.GetElapsedDuration() < timeout_duration) {
+            std::this_thread::yield();
+        }
     }
     std::memcpy(element, getBufferSlot_(current_head), m_element_size_in_bytes);
     m_head.store(incrementByOne(current_head), std::memory_order_release);

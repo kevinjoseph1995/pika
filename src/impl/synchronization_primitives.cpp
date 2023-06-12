@@ -21,9 +21,11 @@
 // SOFTWARE.
 
 #include "synchronization_primitives.hpp"
+#include "channel_interface.hpp"
 #include "error.hpp"
 #include "fmt/core.h"
 
+#include <bits/types/struct_timespec.h>
 #include <cerrno>
 #include <cstdio>
 #include <fcntl.h>
@@ -146,6 +148,26 @@ auto Mutex::Lock() -> std::expected<void, PikaError>
     return {};
 }
 
+auto Mutex::LockTimed(pika::DurationUs duration) -> std::expected<void, PikaError>
+{
+    timespec t { .tv_sec = 0, .tv_nsec = static_cast<decltype(timespec::tv_nsec)>(duration) };
+    if (not m_initialized) {
+        return std::unexpected { PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
+            .error_message = "InterProcessMutex::Lock Uninitialized" } };
+    }
+    auto return_code = pthread_mutex_timedlock(&m_pthread_mutex, &t);
+    if (return_code == ETIMEDOUT) {
+        return std::unexpected { PikaError { .error_type = PikaErrorType::Timeout,
+            .error_message = fmt::format("pthread_mutex_timedlock timed out", return_code) } };
+    }
+    if (return_code != 0) {
+        return std::unexpected { PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
+            .error_message
+            = fmt::format("pthread_mutex_timedlock failed with return code:{}", return_code) } };
+    }
+    return {};
+}
+
 auto Mutex::Unlock() -> std::expected<void, PikaError>
 {
     if (not m_initialized) {
@@ -170,6 +192,22 @@ auto LockedMutex::New(Mutex* mutex) -> std::expected<LockedMutex, PikaError>
     }
 
     auto lock_result = mutex->Lock();
+    if (not lock_result.has_value()) {
+        return std::unexpected(lock_result.error());
+    }
+    return LockedMutex { mutex };
+}
+
+auto LockedMutex::New(Mutex* mutex, pika::DurationUs timeout)
+    -> std::expected<LockedMutex, PikaError>
+{
+    PIKA_ASSERT(mutex != nullptr);
+    if (not mutex->m_initialized) {
+        return std::unexpected { PikaError { .error_type = PikaErrorType::SyncPrimitiveError,
+            .error_message = "LockedMutex::New Uninitialized mutex" } };
+    }
+
+    auto lock_result = mutex->LockTimed(timeout);
     if (not lock_result.has_value()) {
         return std::unexpected(lock_result.error());
     }

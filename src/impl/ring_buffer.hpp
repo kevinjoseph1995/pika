@@ -42,11 +42,11 @@ struct RingBufferBase {
     [[nodiscard]] virtual auto Initialize(uint8_t* buffer, uint64_t element_size,
         uint64_t element_alignment, uint64_t number_of_elements) -> std::expected<void, PikaError>
         = 0;
-    [[nodiscard]] virtual auto Put(uint8_t const* const element, DurationUs timeout_duration)
+    [[nodiscard]] virtual auto PushFront(uint8_t const* const element, DurationUs timeout_duration)
         -> std::expected<void, PikaError>
         = 0;
 
-    [[nodiscard]] virtual auto Get(uint8_t* const element, DurationUs timeout_duration)
+    [[nodiscard]] virtual auto PopBack(uint8_t* const element, DurationUs timeout_duration)
         -> std::expected<void, PikaError>
         = 0;
     [[nodiscard]] auto GetElementAlignment() const -> uint64_t { return m_element_alignment; }
@@ -70,9 +70,9 @@ concept RingBufferType = std::derived_from<T, RingBufferBase>;
 
 struct RingBufferLockProtected : public RingBufferBase {
 public:
-    [[nodiscard]] auto Put(uint8_t const* const element, DurationUs timeout_duration)
+    [[nodiscard]] auto PushFront(uint8_t const* const element, DurationUs timeout_duration)
         -> std::expected<void, PikaError> override;
-    [[nodiscard]] auto Get(uint8_t* const element, DurationUs timeout_duration)
+    [[nodiscard]] auto PopBack(uint8_t* const element, DurationUs timeout_duration)
         -> std::expected<void, PikaError> override;
 
 protected:
@@ -113,9 +113,9 @@ struct RingBufferLockFree : public RingBufferBase {
     [[nodiscard]] auto Initialize(uint8_t* buffer, uint64_t element_size,
         uint64_t element_alignment, uint64_t number_of_elements)
         -> std::expected<void, PikaError> override;
-    [[nodiscard]] auto Put(uint8_t const* const element, DurationUs timeout_duration)
+    [[nodiscard]] auto PushFront(uint8_t const* const element, DurationUs timeout_duration)
         -> std::expected<void, PikaError> override;
-    [[nodiscard]] auto Get(uint8_t* const element, DurationUs timeout_duration)
+    [[nodiscard]] auto PopBack(uint8_t* const element, DurationUs timeout_duration)
         -> std::expected<void, PikaError> override;
 
 private:

@@ -39,16 +39,33 @@ using namespace pika;
 
 struct RingBufferBase {
     virtual ~RingBufferBase() = default;
+    //*****************************************************************************************//
     [[nodiscard]] virtual auto Initialize(uint8_t* buffer, uint64_t element_size,
         uint64_t element_alignment, uint64_t number_of_elements) -> std::expected<void, PikaError>
         = 0;
+    //*****************************************************************************************//
     [[nodiscard]] virtual auto PushFront(uint8_t const* const element, DurationUs timeout_duration)
         -> std::expected<void, PikaError>
         = 0;
-
+    //*****************************************************************************************//
+    [[nodiscard]] virtual auto GetFrontElementPtr(DurationUs timeout_duration)
+        -> std::expected<uint8_t* const, PikaError>
+        = 0;
+    [[nodiscard]] virtual auto ReleaseFrontElementPtr(uint8_t const* const element)
+        -> std::expected<void, PikaError>
+        = 0;
+    //*****************************************************************************************//
     [[nodiscard]] virtual auto PopBack(uint8_t* const element, DurationUs timeout_duration)
         -> std::expected<void, PikaError>
         = 0;
+    //*****************************************************************************************//
+    [[nodiscard]] virtual auto GetBackElementPtr(DurationUs timeout_duration)
+        -> std::expected<uint8_t const* const, PikaError>
+        = 0;
+    [[nodiscard]] virtual auto ReleaseBackElementPtr(uint8_t const* const element)
+        -> std::expected<void, PikaError>
+        = 0;
+    //*****************************************************************************************//
     [[nodiscard]] auto GetElementAlignment() const -> uint64_t { return m_element_alignment; }
     [[nodiscard]] auto GetElementSizeInBytes() const -> uint64_t { return m_element_size_in_bytes; }
     [[nodiscard]] auto GetQueueLength() -> uint64_t { return m_queue_length; }
@@ -74,6 +91,14 @@ public:
         -> std::expected<void, PikaError> override;
     [[nodiscard]] auto PopBack(uint8_t* const element, DurationUs timeout_duration)
         -> std::expected<void, PikaError> override;
+    [[nodiscard]] auto GetFrontElementPtr(DurationUs timeout_duration)
+        -> std::expected<uint8_t* const, PikaError> override;
+    [[nodiscard]] auto ReleaseFrontElementPtr(uint8_t const* const element)
+        -> std::expected<void, PikaError> override;
+    [[nodiscard]] virtual auto GetBackElementPtr(DurationUs timeout_duration)
+        -> std::expected<uint8_t const* const, PikaError> override;
+    [[nodiscard]] virtual auto ReleaseBackElementPtr(uint8_t const* const element)
+        -> std::expected<void, PikaError> override;
 
 protected:
     [[nodiscard]] static auto initialize(RingBufferLockProtected& ring_buffer_object,
@@ -81,12 +106,12 @@ protected:
         uint64_t number_of_elements, bool is_inter_process) -> std::expected<void, PikaError>;
 
 private:
-    Mutex mutex {}; // Coarse grained lock protecting all accesses to the buffer
-    ConditionVariable not_empty_condition_variable {};
-    ConditionVariable not_full_condition_variable {};
-    uint64_t write_index = 0;
-    uint64_t read_index = 0;
-    uint64_t count = 0;
+    Mutex m_mutex {}; // Coarse grained lock protecting all accesses to the buffer
+    ConditionVariable m_not_empty_condition_variable {};
+    ConditionVariable m_not_full_condition_variable {};
+    uint64_t m_write_index = 0;
+    uint64_t m_read_index = 0;
+    uint64_t m_count = 0;
 };
 
 struct RingBufferInterProcessLockProtected : public RingBufferLockProtected {
@@ -117,6 +142,14 @@ struct RingBufferLockFree : public RingBufferBase {
         -> std::expected<void, PikaError> override;
     [[nodiscard]] auto PopBack(uint8_t* const element, DurationUs timeout_duration)
         -> std::expected<void, PikaError> override;
+    [[nodiscard]] auto GetFrontElementPtr(DurationUs timeout_duration)
+        -> std::expected<uint8_t* const, PikaError> override;
+    [[nodiscard]] auto ReleaseFrontElementPtr(uint8_t const* const element)
+        -> std::expected<void, PikaError> override;
+    [[nodiscard]] virtual auto GetBackElementPtr(DurationUs timeout_duration)
+        -> std::expected<uint8_t const* const, PikaError> override;
+    [[nodiscard]] virtual auto ReleaseBackElementPtr(uint8_t const* const element)
+        -> std::expected<void, PikaError> override;
 
 private:
     [[nodiscard]] auto getBufferSlot_(uint64_t index) -> uint8_t*
@@ -130,6 +163,9 @@ private:
         return (index + 1) % (m_internal_queue_length);
     }
     std::atomic_uint64_t m_head = 0;
+    uint64_t m_current_head_temporay {};
+    uint64_t m_next_tail_temporay {};
+    uint64_t m_current_tail_temporay {};
     std::atomic_uint64_t m_tail = 0;
     uint64_t m_internal_queue_length = 0;
 };

@@ -111,6 +111,17 @@ struct ConditionVariable {
             }
         }
     }
+    template <typename Predicate> void Wait(Mutex& locked_mutex, Predicate stop_waiting)
+    {
+        // Pre condition: Caller must ensure locked_mutex was locked, UB otherwise
+        while (stop_waiting() == false) {
+            auto status = pthread_cond_wait(&m_pthread_cond, &locked_mutex.m_pthread_mutex);
+            if (status != 0) {
+                fmt::println(stderr, "pthread_cond_wait failed with return code{}", status);
+                break;
+            }
+        }
+    }
     void Signal()
     {
         auto status = pthread_cond_signal(&m_pthread_cond);

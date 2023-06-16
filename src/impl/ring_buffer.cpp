@@ -24,6 +24,7 @@
 #include "channel_interface.hpp"
 #include "error.hpp"
 #include "synchronization_primitives.hpp"
+#include <__expected/unexpected.h>
 #include <atomic>
 #include <cstring>
 #include <expected>
@@ -50,16 +51,16 @@ auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_ob
     ring_buffer_object.m_element_size_in_bytes = element_size;
     ring_buffer_object.m_queue_length = number_of_elements;
 
-    auto result = ring_buffer_object.mutex.Initialize(is_inter_process);
+    auto result = ring_buffer_object.m_mutex.Initialize(is_inter_process);
     if (not result.has_value()) {
         return std::unexpected(result.error());
     }
-    result = ring_buffer_object.not_empty_condition_variable.Initialize(is_inter_process);
+    result = ring_buffer_object.m_not_empty_condition_variable.Initialize(is_inter_process);
     if (not result.has_value()) {
         result.error().error_message.append("| not_empty_condition_variable");
         return std::unexpected(result.error());
     }
-    result = ring_buffer_object.not_full_condition_variable.Initialize(is_inter_process);
+    result = ring_buffer_object.m_not_full_condition_variable.Initialize(is_inter_process);
     if (not result.has_value()) {
         result.error().error_message.append("| not_full_condition_variable");
         return std::unexpected(result.error());
@@ -74,20 +75,20 @@ auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_ob
     {
         auto locked_mutex_result = [&]() {
             return timeout_duration == pika::INFINITE_TIMEOUT
-                ? LockedMutex::New(&mutex)
-                : LockedMutex::New(&mutex, timeout_duration);
+                ? LockedMutex::New(&m_mutex)
+                : LockedMutex::New(&m_mutex, timeout_duration);
         }();
         if (not locked_mutex_result.has_value()) {
             return std::unexpected { locked_mutex_result.error() };
         }
 
-        not_full_condition_variable.Wait(
-            locked_mutex_result.value(), [this]() -> bool { return count < m_queue_length; });
-        std::memcpy(getBufferSlot(write_index), element, m_element_size_in_bytes);
-        write_index = (write_index + 1) % m_queue_length;
-        ++count;
+        m_not_full_condition_variable.Wait(
+            locked_mutex_result.value(), [this]() -> bool { return m_count < m_queue_length; });
+        std::memcpy(getBufferSlot(m_write_index), element, m_element_size_in_bytes);
+        m_write_index = (m_write_index + 1) % m_queue_length;
+        ++m_count;
     }
-    not_empty_condition_variable.Signal();
+    m_not_empty_condition_variable.Signal();
     return {};
 }
 
@@ -97,19 +98,103 @@ auto RingBufferLockProtected::initialize(RingBufferLockProtected& ring_buffer_ob
     {
         auto locked_mutex_result = [&]() {
             return timeout_duration == pika::INFINITE_TIMEOUT
-                ? LockedMutex::New(&mutex)
-                : LockedMutex::New(&mutex, timeout_duration);
+                ? LockedMutex::New(&m_mutex)
+                : LockedMutex::New(&m_mutex, timeout_duration);
         }();
         if (not locked_mutex_result.has_value()) {
             return std::unexpected { locked_mutex_result.error() };
         }
-        not_empty_condition_variable.Wait(
-            locked_mutex_result.value(), [&]() -> bool { return count != 0; });
-        std::memcpy(element, getBufferSlot(read_index), m_element_size_in_bytes);
-        read_index = (read_index + 1) % m_queue_length;
-        --count;
+        m_not_empty_condition_variable.Wait(
+            locked_mutex_result.value(), [&]() -> bool { return m_count != 0; });
+        std::memcpy(element, getBufferSlot(m_read_index), m_element_size_in_bytes);
+        m_read_index = (m_read_index + 1) % m_queue_length;
+        --m_count;
     }
-    not_full_condition_variable.Signal();
+    m_not_full_condition_variable.Signal();
+    return {};
+}
+
+[[nodiscard]] auto RingBufferLockProtected::GetFrontElementPtr(DurationUs timeout_duration)
+    -> std::expected<uint8_t* const, PikaError>
+{
+    if (timeout_duration == INFINITE_TIMEOUT) {
+        auto lock_result = m_mutex.Lock();
+        if (not lock_result.has_value()) {
+            return std::unexpected { lock_result.error() };
+        }
+    } else {
+        auto lock_result = m_mutex.LockTimed(timeout_duration);
+        if (not lock_result.has_value()) {
+            return std::unexpected { lock_result.error() };
+        }
+    }
+    // Wait till we have a free slot to write to
+    m_not_full_condition_variable.Wait(
+        m_mutex, [this]() -> bool { return m_count < m_queue_length; });
+    // We have exclusive access and have a free slot, return to caller to write into
+    return getBufferSlot(m_write_index);
+}
+
+[[nodiscard]] auto RingBufferLockProtected::ReleaseFrontElementPtr(uint8_t const* const element)
+    -> std::expected<void, PikaError>
+{
+    if (element != getBufferSlot(m_write_index)) {
+        return std::unexpected { PikaError {
+            .error_type = PikaErrorType::RingBufferError,
+            .error_message
+            = "Element pointer given to RingBufferLockProtected::ReleaseFrontElementPtr "
+              "not the front pointer. Ensure that the pointer given to this function is "
+              "the one obtained through RingBufferLockProtected::GetFrontElementPtr",
+        } };
+    }
+    m_write_index = (m_write_index + 1) % m_queue_length;
+    ++m_count;
+    auto unlock_result = m_mutex.Unlock();
+    if (not unlock_result.has_value()) {
+        return std::unexpected { unlock_result.error() };
+    }
+    m_not_empty_condition_variable.Signal();
+    return {};
+}
+
+[[nodiscard]] auto RingBufferLockProtected::GetBackElementPtr(DurationUs timeout_duration)
+    -> std::expected<uint8_t const* const, PikaError>
+{
+    if (timeout_duration == INFINITE_TIMEOUT) {
+        auto lock_result = m_mutex.Lock();
+        if (not lock_result.has_value()) {
+            return std::unexpected { lock_result.error() };
+        }
+    } else {
+        auto lock_result = m_mutex.LockTimed(timeout_duration);
+        if (not lock_result.has_value()) {
+            return std::unexpected { lock_result.error() };
+        }
+    }
+    // Wait till we have a slot to read from
+    m_not_empty_condition_variable.Wait(m_mutex, [&]() -> bool { return m_count != 0; });
+    return getBufferSlot(m_read_index);
+}
+
+[[nodiscard]] auto RingBufferLockProtected::ReleaseBackElementPtr(uint8_t const* const element)
+    -> std::expected<void, PikaError>
+{
+    if (element != getBufferSlot(m_read_index)) {
+        return std::unexpected { PikaError {
+            .error_type = PikaErrorType::RingBufferError,
+            .error_message
+            = "Element pointer given to RingBufferLockProtected::ReleaseBackElementPtr "
+              "not the front pointer. Ensure that the pointer given to this function is "
+              "the one obtained through RingBufferLockProtected::GetBackElementPtr",
+        } };
+    }
+    m_read_index = (m_read_index + 1) % m_queue_length;
+    --m_count;
+    auto unlock_result = m_mutex.Unlock();
+    if (not unlock_result.has_value()) {
+        return std::unexpected { unlock_result.error() };
+    }
+    m_not_full_condition_variable.Signal();
     return {};
 }
 
@@ -139,11 +224,46 @@ auto RingBufferLockFree::PushFront(uint8_t const* const element, DurationUs time
         Timer timer;
         while (next_tail == m_head.load(std::memory_order_acquire)
             && timer.GetElapsedDuration() < timeout_duration) {
-            std::this_thread::yield();
+            // Busy wait; TODO: Detemine best strategy here
         }
     }
     std::memcpy(getBufferSlot_(current_tail), element, m_element_size_in_bytes);
     m_tail.store(next_tail, std::memory_order_release);
+    return {};
+}
+
+[[nodiscard]] auto RingBufferLockFree::GetFrontElementPtr(DurationUs timeout_duration)
+    -> std::expected<uint8_t* const, PikaError>
+{
+    m_current_tail_temporay = m_tail.load(std::memory_order_relaxed);
+    m_next_tail_temporay = incrementByOne(m_current_tail_temporay);
+    if (timeout_duration == pika::INFINITE_TIMEOUT) {
+        while (m_next_tail_temporay == m_head.load(std::memory_order_acquire)) {
+            // Busy wait; TODO: Detemine best strategy here
+        }
+    } else {
+        Timer timer;
+        while (m_next_tail_temporay == m_head.load(std::memory_order_acquire)
+            && timer.GetElapsedDuration() < timeout_duration) {
+            // Busy wait; TODO: Detemine best strategy here
+        }
+    }
+    return getBufferSlot_(m_current_tail_temporay);
+}
+
+[[nodiscard]] auto RingBufferLockFree::ReleaseFrontElementPtr(uint8_t const* const element)
+    -> std::expected<void, PikaError>
+{
+    if (element != getBufferSlot(m_current_tail_temporay)) {
+        return std::unexpected { PikaError {
+            .error_type = PikaErrorType::RingBufferError,
+            .error_message
+            = "Element pointer given to RingBufferLockFree::ReleaseFrontElementPtr "
+              "not the front pointer. Ensure that the pointer given to this function is "
+              "the one obtained through RingBufferLockFree::GetFrontElementPtr",
+        } };
+    }
+    m_tail.store(m_next_tail_temporay, std::memory_order_release);
     return {};
 }
 
@@ -160,10 +280,45 @@ auto RingBufferLockFree::PopBack(uint8_t* const element, DurationUs timeout_dura
         Timer timer;
         while (current_head == m_tail.load(std::memory_order_acquire)
             && timer.GetElapsedDuration() < timeout_duration) {
-            std::this_thread::yield();
+            // Busy wait; TODO: Detemine best strategy here
         }
     }
     std::memcpy(element, getBufferSlot_(current_head), m_element_size_in_bytes);
     m_head.store(incrementByOne(current_head), std::memory_order_release);
+    return {};
+}
+
+[[nodiscard]] auto RingBufferLockFree::GetBackElementPtr(DurationUs timeout_duration)
+    -> std::expected<uint8_t const* const, PikaError>
+{
+    m_current_head_temporay = m_head.load(std::memory_order_relaxed);
+    if (timeout_duration == pika::INFINITE_TIMEOUT) {
+        while (m_current_head_temporay == m_tail.load(std::memory_order_acquire)) {
+            // Busy wait; TODO: Detemine best strategy here
+        }
+
+    } else {
+        Timer timer;
+        while (m_current_head_temporay == m_tail.load(std::memory_order_acquire)
+            && timer.GetElapsedDuration() < timeout_duration) {
+            // Busy wait; TODO: Detemine best strategy here
+        }
+    }
+    return getBufferSlot_(m_current_head_temporay);
+}
+
+[[nodiscard]] auto RingBufferLockFree::ReleaseBackElementPtr(uint8_t const* const element)
+    -> std::expected<void, PikaError>
+{
+    if (element != getBufferSlot(m_current_head_temporay)) {
+        return std::unexpected { PikaError {
+            .error_type = PikaErrorType::RingBufferError,
+            .error_message
+            = "Element pointer given to RingBufferLockFree::ReleaseBackElementPtr "
+              "not the front pointer. Ensure that the pointer given to this function is "
+              "the one obtained through RingBufferLockFree::GetBackElementPtr",
+        } };
+    }
+    m_head.store(incrementByOne(m_current_head_temporay), std::memory_order_release);
     return {};
 }

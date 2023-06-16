@@ -133,7 +133,7 @@ auto RingBufferLockFree::Put(uint8_t const* const element, DurationUs timeout_du
     auto const next_tail = incrementByOne(current_tail);
     if (timeout_duration == pika::INFINITE_TIMEOUT) {
         while (next_tail == m_head.load(std::memory_order_acquire)) {
-            std::this_thread::yield();
+            // Busy wait; TODO: Detemine best strategy here
         }
     } else {
         Timer timer;
@@ -153,7 +153,7 @@ auto RingBufferLockFree::Get(uint8_t* const element, DurationUs timeout_duration
     auto const current_head = m_head.load(std::memory_order_relaxed);
     if (timeout_duration == pika::INFINITE_TIMEOUT) {
         while (current_head == m_tail.load(std::memory_order_acquire)) {
-            std::this_thread::yield();
+            // Busy wait; TODO: Detemine best strategy here
         }
 
     } else {

@@ -191,6 +191,18 @@ struct ConsumerInternal : public pika::ConsumerImpl {
     {
         return GetHeader<BackingStorageType, RingBuffer>(m_storage).producer_count.load() > 0;
     }
+    auto GetReceiveSlot(DurationUs timeout_duration)
+        -> std::expected<uint8_t const* const, PikaError> override
+    {
+        auto& ring_buffer = GetHeader<BackingStorageType, RingBuffer>(m_storage).ring_buffer;
+        return ring_buffer.GetBackElementPtr(timeout_duration);
+    }
+
+    auto ReleaseReceiveSlot(uint8_t const* const slot) -> std::expected<void, PikaError> override
+    {
+        auto& ring_buffer = GetHeader<BackingStorageType, RingBuffer>(m_storage).ring_buffer;
+        return ring_buffer.ReleaseBackElementPtr(slot);
+    }
 
     virtual ~ConsumerInternal()
     {
@@ -249,6 +261,19 @@ struct ProducerInternal : public pika::ProducerImpl {
         }
 
         return {};
+    }
+
+    auto GetSendSlot(DurationUs timeout_duration)
+        -> std::expected<uint8_t* const, PikaError> override
+    {
+        auto& ring_buffer = GetHeader<BackingStorageType, RingBuffer>(m_storage).ring_buffer;
+        return ring_buffer.GetFrontElementPtr(timeout_duration);
+    };
+
+    auto ReleaseSendSlot(uint8_t* slot) -> std::expected<void, PikaError> override
+    {
+        auto& ring_buffer = GetHeader<BackingStorageType, RingBuffer>(m_storage).ring_buffer;
+        return ring_buffer.ReleaseFrontElementPtr(slot);
     }
 
     auto IsConnected() -> bool override

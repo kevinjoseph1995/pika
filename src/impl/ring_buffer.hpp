@@ -27,6 +27,7 @@
 #include "error.hpp"
 #include "synchronization_primitives.hpp"
 // System includes
+#include <__expected/unexpected.h>
 #include <atomic>
 #include <concepts>
 #include <cstddef>
@@ -143,13 +144,34 @@ struct RingBufferLockFree : public RingBufferBase {
     [[nodiscard]] auto PopBack(uint8_t* const element, DurationUs timeout_duration)
         -> std::expected<void, PikaError> override;
     [[nodiscard]] auto GetFrontElementPtr(DurationUs timeout_duration)
-        -> std::expected<uint8_t* const, PikaError> override;
+        -> std::expected<uint8_t* const, PikaError> override
+    {
+        static_cast<void>(timeout_duration);
+        return std::unexpected { PikaError { .error_type = PikaErrorType::RingBufferError,
+            .error_message = "Zero-copy API not supported" } };
+    }
     [[nodiscard]] auto ReleaseFrontElementPtr(uint8_t const* const element)
-        -> std::expected<void, PikaError> override;
+        -> std::expected<void, PikaError> override
+    {
+        static_cast<void>(element);
+        return std::unexpected { PikaError { .error_type = PikaErrorType::RingBufferError,
+            .error_message = "Zero-copy API not supported" } };
+    }
     [[nodiscard]] virtual auto GetBackElementPtr(DurationUs timeout_duration)
-        -> std::expected<uint8_t const* const, PikaError> override;
+        -> std::expected<uint8_t const* const, PikaError> override
+    {
+        static_cast<void>(timeout_duration);
+        return std::unexpected { PikaError { .error_type = PikaErrorType::RingBufferError,
+            .error_message = "Zero-copy API not supported" } };
+    }
     [[nodiscard]] virtual auto ReleaseBackElementPtr(uint8_t const* const element)
-        -> std::expected<void, PikaError> override;
+        -> std::expected<void, PikaError> override
+    {
+
+        static_cast<void>(element);
+        return std::unexpected { PikaError { .error_type = PikaErrorType::RingBufferError,
+            .error_message = "Zero-copy API not supported" } };
+    }
 
 private:
     [[nodiscard]] auto getBufferSlot_(uint64_t index) -> uint8_t*
@@ -163,9 +185,6 @@ private:
         return (index + 1) % (m_internal_queue_length);
     }
     std::atomic_uint64_t m_head = 0;
-    uint64_t m_current_head_temporay {};
-    uint64_t m_next_tail_temporay {};
-    uint64_t m_current_tail_temporay {};
     std::atomic_uint64_t m_tail = 0;
     uint64_t m_internal_queue_length = 0;
 };

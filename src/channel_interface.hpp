@@ -25,6 +25,7 @@
 
 #include "error.hpp"
 
+#include <__expected/unexpected.h>
 #include <cstdint>
 #include <expected>
 #include <limits>
@@ -45,6 +46,10 @@ struct ProducerImpl {
     virtual auto Send(uint8_t const* const source_buffer, DurationUs timeout_duration)
         -> std::expected<void, PikaError>
         = 0;
+    virtual auto GetSendSlot(DurationUs timeout_duration)
+        -> std::expected<uint8_t* const, PikaError>
+        = 0;
+    virtual auto ReleaseSendSlot(uint8_t* slot) -> std::expected<void, PikaError> = 0;
     virtual auto IsConnected() -> bool = 0;
 };
 
@@ -54,6 +59,11 @@ struct ConsumerImpl {
     virtual auto Receive(uint8_t* const destination_buffer, DurationUs timeout_duration)
         -> std::expected<void, PikaError>
         = 0;
+    virtual auto GetReceiveSlot(DurationUs timeout_duration)
+        -> std::expected<uint8_t const* const, PikaError>
+        = 0;
+    virtual auto ReleaseReceiveSlot(uint8_t const* const slot) -> std::expected<void, PikaError>
+        = 0;
     virtual auto IsConnected() -> bool = 0;
 };
 
@@ -62,6 +72,19 @@ template <ChannelPacketType DataT> struct Producer {
         -> std::expected<void, PikaError>
     {
         return m_impl->Send(reinterpret_cast<uint8_t const*>(&packet), timeout_duration);
+    }
+    auto GetSendSlot(DurationUs timeout_duration = INFINITE_TIMEOUT)
+        -> std::expected<DataT*, PikaError>
+    {
+        auto result = m_impl->GetSendSlot(timeout_duration);
+        if (not result.has_value()) {
+            return std::unexpected(result.error());
+        }
+        return reinterpret_cast<DataT* const>(result.value());
+    }
+    auto ReleaseSendSlot(DataT* const slot) -> std::expected<void, PikaError>
+    {
+        return m_impl->ReleaseSendSlot(reinterpret_cast<uint8_t* const>(slot));
     }
 
     auto Connect() -> std::expected<void, PikaError> { return m_impl->Connect(); }
@@ -81,6 +104,21 @@ template <ChannelPacketType DataT> struct Consumer {
         -> std::expected<void, PikaError>
     {
         return m_impl->Receive(reinterpret_cast<uint8_t*>(&packet), timeout_duration);
+    }
+
+    auto GetReceiveSlot(DurationUs timeout_duration = INFINITE_TIMEOUT)
+        -> std::expected<DataT const* const, PikaError>
+    {
+        auto result = m_impl->GetReceiveSlot(timeout_duration);
+        if (not result.has_value()) {
+            return std::unexpected(result.error());
+        }
+        return reinterpret_cast<DataT const*>(result.value());
+    }
+
+    auto ReleaseReceiveSlot(DataT const* const packet_pointer) -> std::expected<void, PikaError>
+    {
+        return m_impl->ReleaseReceiveSlot(reinterpret_cast<uint8_t const* const>(packet_pointer));
     }
 
     auto Connect() -> std::expected<void, PikaError> { return m_impl->Connect(); }

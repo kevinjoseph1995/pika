@@ -232,41 +232,6 @@ auto RingBufferLockFree::PushFront(uint8_t const* const element, DurationUs time
     return {};
 }
 
-[[nodiscard]] auto RingBufferLockFree::GetFrontElementPtr(DurationUs timeout_duration)
-    -> std::expected<uint8_t* const, PikaError>
-{
-    m_current_tail_temporay = m_tail.load(std::memory_order_relaxed);
-    m_next_tail_temporay = incrementByOne(m_current_tail_temporay);
-    if (timeout_duration == pika::INFINITE_TIMEOUT) {
-        while (m_next_tail_temporay == m_head.load(std::memory_order_acquire)) {
-            // Busy wait; TODO: Detemine best strategy here
-        }
-    } else {
-        Timer timer;
-        while (m_next_tail_temporay == m_head.load(std::memory_order_acquire)
-            && timer.GetElapsedDuration() < timeout_duration) {
-            // Busy wait; TODO: Detemine best strategy here
-        }
-    }
-    return getBufferSlot_(m_current_tail_temporay);
-}
-
-[[nodiscard]] auto RingBufferLockFree::ReleaseFrontElementPtr(uint8_t const* const element)
-    -> std::expected<void, PikaError>
-{
-    if (element != getBufferSlot(m_current_tail_temporay)) {
-        return std::unexpected { PikaError {
-            .error_type = PikaErrorType::RingBufferError,
-            .error_message
-            = "Element pointer given to RingBufferLockFree::ReleaseFrontElementPtr "
-              "not the front pointer. Ensure that the pointer given to this function is "
-              "the one obtained through RingBufferLockFree::GetFrontElementPtr",
-        } };
-    }
-    m_tail.store(m_next_tail_temporay, std::memory_order_release);
-    return {};
-}
-
 auto RingBufferLockFree::PopBack(uint8_t* const element, DurationUs timeout_duration)
     -> std::expected<void, PikaError>
 {
@@ -285,40 +250,5 @@ auto RingBufferLockFree::PopBack(uint8_t* const element, DurationUs timeout_dura
     }
     std::memcpy(element, getBufferSlot_(current_head), m_element_size_in_bytes);
     m_head.store(incrementByOne(current_head), std::memory_order_release);
-    return {};
-}
-
-[[nodiscard]] auto RingBufferLockFree::GetBackElementPtr(DurationUs timeout_duration)
-    -> std::expected<uint8_t const* const, PikaError>
-{
-    m_current_head_temporay = m_head.load(std::memory_order_relaxed);
-    if (timeout_duration == pika::INFINITE_TIMEOUT) {
-        while (m_current_head_temporay == m_tail.load(std::memory_order_acquire)) {
-            // Busy wait; TODO: Detemine best strategy here
-        }
-
-    } else {
-        Timer timer;
-        while (m_current_head_temporay == m_tail.load(std::memory_order_acquire)
-            && timer.GetElapsedDuration() < timeout_duration) {
-            // Busy wait; TODO: Detemine best strategy here
-        }
-    }
-    return getBufferSlot_(m_current_head_temporay);
-}
-
-[[nodiscard]] auto RingBufferLockFree::ReleaseBackElementPtr(uint8_t const* const element)
-    -> std::expected<void, PikaError>
-{
-    if (element != getBufferSlot(m_current_head_temporay)) {
-        return std::unexpected { PikaError {
-            .error_type = PikaErrorType::RingBufferError,
-            .error_message
-            = "Element pointer given to RingBufferLockFree::ReleaseBackElementPtr "
-              "not the front pointer. Ensure that the pointer given to this function is "
-              "the one obtained through RingBufferLockFree::GetBackElementPtr",
-        } };
-    }
-    m_head.store(incrementByOne(m_current_head_temporay), std::memory_order_release);
     return {};
 }

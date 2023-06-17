@@ -258,3 +258,83 @@ TEST(InterProcessChannel, TxRxWithTimeouts)
     ASSERT_TRUE(child_process_exit_status.has_value())
         << child_process_handle.error().error_message;
 }
+
+TEST(InterProcessChannel, TxRxZeroCopy)
+{
+    auto const params = pika::ChannelParameters {
+        .channel_name = "/test", .queue_size = 4, .channel_type = pika::ChannelType::InterProcess
+    };
+    auto const tx_data = GetRandomIntVector(100);
+    auto child_process_handle = ChildProcessHandle::RunChildFunction([&]() -> ChildProcessState {
+        auto producer = pika::Channel::CreateProducer<int>(params);
+        if (not producer.has_value()) {
+            fmt::println(stderr, "{}", producer.error().error_message);
+            return ChildProcessState::FAIL;
+        }
+        auto connect_result = producer->Connect();
+        if (not connect_result.has_value()) {
+            fmt::println(stderr, "{}", connect_result.error().error_message);
+            return ChildProcessState::FAIL;
+        }
+        for (auto tx : tx_data) {
+            auto slot = std::expected<int*, PikaError> {};
+            while (true) {
+                slot = producer->GetSendSlot(1000);
+                if (slot.has_value() || slot.error().error_type != PikaErrorType::Timeout) {
+                    break;
+                }
+            }
+            *(slot.value()) = tx;
+            auto send_result = producer->ReleaseSendSlot(slot.value());
+            if (not send_result.has_value()) {
+                fmt::println(stderr, "producer->Send Error: {}", slot.error().error_message);
+                return ChildProcessState::FAIL;
+            }
+        }
+        return ChildProcessState::SUCCESS;
+    });
+    ASSERT_TRUE(child_process_handle.has_value()) << child_process_handle.error().error_message;
+    // Setup consumer
+    auto consumer = pika::Channel::CreateConsumer<int>(params);
+    auto connect_result = consumer->Connect();
+    ASSERT_TRUE(connect_result.has_value()) << connect_result.error().error_message;
+
+    size_t index = 0;
+    while (true) {
+        StopWatch watch;
+
+        auto recv_result = std::expected<int const*, PikaError> {};
+        while (true) {
+            recv_result = consumer->GetReceiveSlot(1000);
+            if (recv_result.has_value()
+                || recv_result.error().error_type != PikaErrorType::Timeout) {
+                break;
+            }
+        }
+        ASSERT_TRUE(recv_result.has_value()) << recv_result.error().error_message;
+        ASSERT_TRUE(*(recv_result.value()) == tx_data[index++]);
+        ASSERT_TRUE(consumer->ReleaseReceiveSlot(recv_result.value()).has_value());
+        if (index == tx_data.size() - 1) {
+            break;
+        }
+        fmt::println("Rx cycle took:{} microseconds", watch.ElapsedDurationUs());
+    }
+
+    auto child_process_exit_status = child_process_handle->WaitForChildProcess();
+    ASSERT_TRUE(child_process_exit_status.has_value())
+        << child_process_handle.error().error_message;
+}
+
+TEST(InterProcessChannel, TxRxZeroCopyLockFree)
+{
+    auto const params = pika::ChannelParameters { .channel_name = "/test",
+        .queue_size = 4,
+        .channel_type = pika::ChannelType::InterProcess,
+        .single_producer_single_consumer_mode = true };
+
+    // Setup consumer
+    auto consumer = pika::Channel::CreateConsumer<int>(params);
+    auto recv_result = consumer->GetReceiveSlot(1000);
+    ASSERT_FALSE(recv_result.has_value());
+    ASSERT_FALSE(consumer->ReleaseReceiveSlot(nullptr).has_value());
+}

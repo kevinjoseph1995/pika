@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdint>
 #include <random>
+#include <type_traits>
 
 auto inline GetRandomIntVector(uint64_t size) -> std::vector<int>
 {
